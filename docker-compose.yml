@@ -1,0 +1,70 @@
+# Snak'r — one-command self-hosted stack: postgres + app + caddy.
+#   docker compose up -d --build
+# Postgres comes up first and is health-gated; the app entrypoint then migrates,
+# seeds the admin, and serves; Caddy terminates TLS and reverse-proxies the app.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Doubled $$ so compose passes the literal $POSTGRES_* to the shell inside
+      # the container (not interpolated at compose-parse time).
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Compose-composed DB URL wins over any DATABASE_URL in .env: it targets
+      # the `postgres` service host, not localhost.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      STORAGE_ROOT: /data/uploads
+    depends_on:
+      postgres:
+        # Waits for Postgres to accept connections, not just for the container to start.
+        condition: service_healthy
+    volumes:
+      - uploads:/data
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Grace period covering migrate + seed on first boot before health counts.
+      start_period: 30s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      # Drives the Caddyfile site address. Defaults to localhost (internal TLS);
+      # set APP_DOMAIN to a public FQDN for automatic Let's Encrypt certificates.
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:

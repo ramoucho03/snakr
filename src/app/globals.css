@@ -1,26 +1,337 @@
 @import "tailwindcss";
 
+/* Self-hosted variable fonts — bundled at build, zero runtime egress. */
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource-variable/inter";
+
+/* ===========================================================================
+   DESIGN TOKENS
+   Dark-neon is the default. Light glass is a full, first-class theme.
+   Theme is switched by stamping data-theme on :root (see ThemeScript).
+   =========================================================================== */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+
+  --bg-0: #07070c;
+  --bg-1: #0d0d18;
+  --bg-grad:
+    radial-gradient(1200px 800px at 15% -10%, #1b1140 0%, transparent 60%),
+    radial-gradient(1000px 700px at 110% 20%, #04202e 0%, transparent 55%),
+    #07070c;
+
+  --glass: rgba(255, 255, 255, 0.06);
+  --glass-strong: rgba(255, 255, 255, 0.1);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-hi: rgba(255, 255, 255, 0.14);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+
+  --neon-violet: #8b5cf6;
+  --neon-cyan: #22d3ee;
+  --neon-magenta: #ff2fd6;
+  --accent: var(--neon-violet);
+  --accent-contrast: #ffffff;
+  --glow: 0 0 24px rgba(139, 92, 246, 0.45), 0 0 60px rgba(34, 211, 238, 0.18);
+
+  --text-hi: #f4f5ff;
+  --text-lo: rgba(244, 245, 255, 0.64);
+  --text-faint: rgba(244, 245, 255, 0.4);
+
+  --danger: #fb5a6a;
+  --success: #34d99b;
+  --warning: #f7b955;
+
+  --blur-sm: 8px;
+  --blur-md: 16px;
+  --blur-lg: 22px;
+  --blur-xl: 32px;
+  --saturate: 1.6;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+
+  --shadow-card: var(--glass-shadow);
+  --shadow-hi: inset 0 1px 0 var(--glass-hi);
+  --shadow-float: 0 24px 60px rgba(0, 0, 0, 0.55);
+  --noise-opacity: 0.045;
+
+  --font-display: "Space Grotesk Variable", "Space Grotesk", ui-sans-serif, sans-serif;
+  --font-ui: "Inter Variable", "Inter", system-ui, ui-sans-serif, sans-serif;
 }
 
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-0: #eef1f8;
+  --bg-1: #ffffff;
+  --bg-grad:
+    radial-gradient(1100px 760px at 12% -8%, #dcd4ff 0%, transparent 60%),
+    radial-gradient(900px 680px at 108% 12%, #cdeff7 0%, transparent 55%),
+    #eef1f8;
+
+  --glass: rgba(255, 255, 255, 0.55);
+  --glass-strong: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.65);
+  --glass-hi: rgba(255, 255, 255, 0.9);
+  --glass-shadow: 0 8px 30px rgba(31, 38, 90, 0.12);
+
+  --neon-violet: #7c3aed;
+  --neon-cyan: #0891b2;
+  --neon-magenta: #db2777;
+  --accent: var(--neon-violet);
+  --accent-contrast: #ffffff;
+  --glow: 0 0 20px rgba(124, 58, 237, 0.25);
+
+  --text-hi: #0e1020;
+  --text-lo: rgba(14, 16, 32, 0.62);
+  --text-faint: rgba(14, 16, 32, 0.42);
+
+  --shadow-float: 0 24px 60px rgba(31, 38, 90, 0.18);
+  --noise-opacity: 0.03;
+}
+
+/* Expose tokens to Tailwind's utility layer (bg-glass, text-text-hi, font-display, ...) */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg-0: var(--bg-0);
+  --color-bg-1: var(--bg-1);
+  --color-glass: var(--glass);
+  --color-glass-strong: var(--glass-strong);
+  --color-glass-border: var(--glass-border);
+  --color-accent: var(--accent);
+  --color-neon-violet: var(--neon-violet);
+  --color-neon-cyan: var(--neon-cyan);
+  --color-neon-magenta: var(--neon-magenta);
+  --color-text-hi: var(--text-hi);
+  --color-text-lo: var(--text-lo);
+  --color-text-faint: var(--text-faint);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+
+  --font-display: var(--font-display);
+  --font-ui: var(--font-ui);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ===========================================================================
+   BASE
+   =========================================================================== */
+* {
+  min-width: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scrollbar-color: var(--glass-border) transparent;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100dvh;
+  background: var(--bg-0);
+  color: var(--text-hi);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 45%, transparent);
+  color: var(--text-hi);
+}
+
+/* Slim, glassy scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--glass-border);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--accent) 60%, var(--glass-border));
+  background-clip: content-box;
+}
+
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===========================================================================
+   AURORA BACKDROP  — one fixed, pre-blurred layer the glass refracts.
+   Blur the orbs once (static filter); never backdrop-blur a moving bg.
+   =========================================================================== */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  background: var(--bg-grad);
+}
+
+.aurora__orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px) saturate(1.5);
+  opacity: 0.5;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+:root[data-theme="light"] .aurora__orb {
+  mix-blend-mode: multiply;
+  opacity: 0.4;
+  filter: blur(90px) saturate(1.2);
+}
+
+@keyframes orbDriftA {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(6vw, 4vh, 0) scale(1.12); }
+}
+@keyframes orbDriftB {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.05); }
+  50% { transform: translate3d(-5vw, 5vh, 0) scale(0.95); }
+}
+@keyframes orbDriftC {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(4vw, -6vh, 0) scale(1.08); }
+}
+
+.aurora__orb--a { animation: orbDriftA 22s ease-in-out infinite; }
+.aurora__orb--b { animation: orbDriftB 27s ease-in-out infinite; }
+.aurora__orb--c { animation: orbDriftC 19s ease-in-out infinite; }
+
+/* Fine film grain — inline feTurbulence, no network request, CSP-safe. */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--noise-opacity);
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ===========================================================================
+   GLASS  — the canonical 6-layer panel.
+   =========================================================================== */
+.glass {
+  position: relative;
+  isolation: isolate;
+  border-radius: var(--radius-lg);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(var(--saturate));
+  backdrop-filter: blur(var(--blur-lg)) saturate(var(--saturate));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-card), var(--shadow-hi);
+}
+
+.glass-strong {
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(var(--saturate));
+  backdrop-filter: blur(var(--blur-xl)) saturate(var(--saturate));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-float), var(--shadow-hi);
+  border-radius: var(--radius-lg);
+}
+
+/* Subtle top-lit sheen usable on any glass surface */
+.glass-sheen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--glass-hi) 90%, transparent),
+    transparent 40%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.neon-text {
+  background: linear-gradient(
+    92deg,
+    var(--neon-violet),
+    var(--neon-cyan) 55%,
+    var(--neon-magenta)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Modal / overlay entrance (used by the Radix dialog wrapper) */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes popIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.ring-focus {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 70%, transparent),
+    var(--glow);
+}
+
+/* Accessible focus ring for keyboard users everywhere */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 80%, white 10%);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ===========================================================================
+   ACCESSIBILITY GUARDS
+   =========================================================================== */
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-strong {
+    background: var(--bg-1);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .aurora,
+  .grain {
+    display: none;
+  }
+  body {
+    background: var(--bg-1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora__orb {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -1,0 +1,644 @@
+[
+  {
+    "dimension": "Security & Access-Control for a self-hosted Next.js 15 + PostgreSQL/Prisma file-sharing platform (local-disk storage)",
+    "summary": "For a self-hosted cloud-drive on Next.js 15 App Router + Prisma/Postgres with files on local disk, the 2025-2026 authoritative guidance converges on: (1) opaque, DB-backed sessions carried in an httpOnly + Secure + SameSite=Lax cookie (encrypt/sign the session id with jose or iron-session), and argon2id for password hashing (OWASP: m=19 MiB, t=2, p=1 minimum) rather than bcrypt; (2) enforce authorization in a server-side Data Access Layer (DAL) called from EVERY server action / route handler — treat middleware only as an optimistic UX pre-filter, never the security boundary (note CVE-2025-29927 middleware bypass, patched in Next 15.2.3+); (3) public share links = 128+ bits of CSPRNG entropy, store only a HASH of the token, support optional password (also hashed), expiry, max-download counter, and a revoked flag; (4) internal sharing via a dedicated ACL/permission table keyed on (resource, principal, permission) with folder-tree inheritance resolved by walking ancestors; (5) upload safety = validate by magic-byte sniffing not the client Content-Type/extension, allowlist types, cap size, store under a UUID filename OUTSIDE web root, never trust user path segments (resolve + confine to the storage root to block ../ traversal), and serve via an app controller with Content-Disposition: attachment; (6) rate-limit login and share-unlock endpoints (sliding window, per-IP + per-account); (7) rely on Next's built-in Origin/Host CSRF check for server actions plus SameSite cookies, adding a token only for custom POST route handlers; (8) seed the initial admin idempotently at startup from env vars using upsert, hashing the password in-process and never logging it. Enforce HTTPS end-to-end and set a strict CSP. Because I had web access, recommendations below cite OWASP cheat sheets and official Next.js docs (June 2026 version).",
+    "keyRecommendations": [
+      "AUTH — hashing: Use argon2id (node `argon2` package, `argon2.argon2id`). OWASP Password Storage Cheat Sheet minimum: memoryCost=19456 (19 MiB), timeCost=2, parallelism=1 — or the equivalent m=47104/t=1/p=1. On a capable server bump to ~46-64 MiB. Only fall back to bcrypt (cost >=12) on constrained hardware, and remember bcrypt silently truncates input at 72 bytes. Argon2 embeds its salt+params in the encoded hash, so store the full string and verify with `argon2.verify(hash, password)`.",
+      "AUTH — sessions: Prefer DB-backed (stateless) sessions: store a `Session` row (id, userId, expiresAt, optional device info) and put ONLY an encrypted/signed session id in the cookie so you can instantly revoke on logout/ban. Set the cookie server-side with `{ httpOnly:true, secure:true, sameSite:'lax', path:'/', expires }`. Never store tokens in localStorage (XSS-readable). If you use stateless JWT sessions instead, keep them short-lived (15-30 min) with a refresh token whose JTI is stored server-side for revocation. Sign/encrypt with `jose` (Edge-compatible) or `iron-session`; keep a 32-byte `openssl rand -base64 32` secret in env.",
+      "AUTHZ — enforcement point: Centralize checks in a server-only Data Access Layer. Expose `verifySession()` (wrapped in React `cache()`) and resource-level helpers like `assertCanRead(userId, fileId)`. Call these inside EVERY server action, route handler, and data fetch — Next.js docs: 'Treat Server Actions and Route Handlers with the same security considerations as public-facing API endpoints.' Return 401 when unauthenticated, 403 when authenticated-but-forbidden. Do NOT gate security only in a layout (partial rendering skips re-checks) or only in middleware.",
+      "AUTHZ — middleware caveat: Use `middleware`/`proxy` only for optimistic cookie-based redirects (cheap UX), never as the real authz boundary, and pin Next.js to >= 15.2.3 to avoid CVE-2025-29927 (a spoofed `x-middleware-subrequest` header let attackers skip middleware entirely). Even patched, the DAL must independently re-check.",
+      "AUTHZ — roles: Store `role` enum (ADMIN | USER) on the user and load it into the session/DAL. Guard admin-only server actions/routes with an explicit `if (session.role !== 'ADMIN') return 403`. Combine coarse role checks with fine-grained per-resource ACL checks (below) — a non-admin still needs an ACL grant to touch another user's file.",
+      "PUBLIC share links: Generate the token with a CSPRNG — `crypto.randomBytes(32).toString('base64url')` (256 bits, well above OWASP's 128-bit floor) — and store only its SHA-256 hash in a `ShareLink` table (so a DB leak doesn't expose live links). Columns: id, resourceId, tokenHash, passwordHash (nullable, argon2id), expiresAt (nullable), maxDownloads (nullable), downloadCount, revokedAt (nullable), createdBy. On access: hash the presented token, look up, reject if revoked/expired/over-limit, verify optional password, then atomically increment downloadCount (use an UPDATE ... WHERE downloadCount < maxDownloads to avoid races). Serve HTTPS only.",
+      "INTERNAL sharing (ACL): Add a `Permission`/ACL table: (id, resourceType [FILE|FOLDER], resourceId, principalType [USER|GROUP], principalId, level [READ|WRITE|OWNER], grantedBy, createdAt) with a UNIQUE(resourceType,resourceId,principalType,principalId). Resolve effective access by checking a direct grant on the item AND walking its folder ancestors (materialized `path`/`ancestorIds` column, or a recursive CTE) so a grant on a folder cascades to children. Take the most-permissive matching level. Always resolve permission server-side in the DAL, never trust a client-sent capability.",
+      "UPLOAD safety: Do NOT trust the browser `Content-Type` or the file extension. Read the first bytes and sniff the real type (`file-type` npm package / magic numbers) and validate against a strict allowlist; enforce a max size before and during streaming; reject double extensions (`.jpg.php`), null bytes, and leading/sequential dots. Persist under a server-generated UUID filename in a directory OUTSIDE the Next.js public/web root, keep the original name only as a DB metadata field, and serve downloads through a route handler with `Content-Disposition: attachment` + `X-Content-Type-Options: nosniff`. Block executable/script types outright; treat SVG as dangerous (script-bearing) unless sanitized.",
+      "PATH-TRAVERSAL: When building the on-disk path for a user's folder tree, never concatenate raw user segments. Resolve the candidate with `path.resolve(STORAGE_ROOT, rel)` and assert the result `startsWith(STORAGE_ROOT + path.sep)` before any fs operation; reject otherwise. Prefer storing files by opaque UUID and mapping the logical folder tree purely in the DB, decoupling disk layout from user-controlled names entirely.",
+      "RATE LIMITING: Throttle login, password-reset, and share-link-unlock endpoints with a sliding-window limiter keyed on BOTH client IP and target account/token (e.g. `@upstash/ratelimit` with Redis, or a Postgres/in-memory limiter for a single-node self-host). Apply strict limits (e.g. ~5-10 attempts/min) on auth endpoints, add exponential backoff/lockout after repeated failures, and return generic errors. Do the check in the route handler/action (where you have identity context), not only in middleware.",
+      "CSRF: For React Server Actions, Next.js already compares Origin against Host/X-Forwarded-Host and only allows POST, which blocks classic CSRF — keep session cookies `SameSite=Lax` (or Strict) as defense-in-depth, and set `serverActions.allowedOrigins` if behind a reverse proxy. For any custom mutating Route Handler (non-server-action POST/PUT/DELETE) that relies on cookies, add an explicit CSRF token (double-submit or synchronizer) since those don't get the automatic Origin check.",
+      "ADMIN seeding: On container/app startup run an idempotent seed that reads `ADMIN_EMAIL` and `ADMIN_PASSWORD` (or a hash) from env and does a Prisma `upsert` on the admin email: create with role=ADMIN and an argon2id-hashed password if absent, otherwise no-op (don't overwrite a rotated password each boot). Hash in-process; never echo or log the plaintext; prefer a mounted secret over a plain env var; and encourage a forced password change on first login. Fail startup loudly if the env vars are missing in production.",
+      "TRANSPORT & headers: Terminate TLS (self-host behind Caddy/nginx with HSTS) so `Secure` cookies and share links are never sent in clear. Add security headers: a strict `Content-Security-Policy` (no inline unless nonce'd), `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and `X-Frame-Options: DENY`/frame-ancestors 'none' to blunt XSS/clickjacking that could steal sessions."
+    ],
+    "libraries": [
+      {
+        "name": "argon2 (node-argon2)",
+        "purpose": "Password hashing with argon2id — OWASP's recommended KDF",
+        "notes": "Use type=argon2id, memoryCost>=19456, timeCost>=2, parallelism=1. Salt+params are embedded in the encoded hash; verify with argon2.verify()."
+      },
+      {
+        "name": "@node-rs/argon2",
+        "purpose": "Rust-backed argon2 binding — faster alternative to node-argon2",
+        "notes": "Popular in Lucia/modern stacks; same argon2id parameters apply."
+      },
+      {
+        "name": "bcrypt / bcryptjs",
+        "purpose": "Legacy password hashing fallback only",
+        "notes": "Cost factor >=12; beware 72-byte truncation. Next.js docs' example uses cost 10 — treat that as a minimum, prefer 12+, or better use argon2id."
+      },
+      {
+        "name": "jose",
+        "purpose": "Sign/encrypt (JWT/JWE) the session payload or session id in the cookie",
+        "notes": "Edge-runtime compatible; used in official Next.js session example. Keep a 32-byte secret in env."
+      },
+      {
+        "name": "iron-session",
+        "purpose": "Encrypted stateless cookie sessions",
+        "notes": "Recommended by Next.js docs as a simpler alternative to hand-rolling jose."
+      },
+      {
+        "name": "Auth.js (NextAuth) / Better Auth / Lucia-style",
+        "purpose": "Batteries-included auth: sessions, cookies, CSRF, DB adapters",
+        "notes": "Better Auth and Auth.js both ship httpOnly/SameSite cookies, rolling expiry, and DB sessions via Prisma adapter; reduce hand-rolled risk."
+      },
+      {
+        "name": "@upstash/ratelimit + Redis (or a Postgres/in-memory limiter)",
+        "purpose": "Brute-force / rate limiting on login and share endpoints",
+        "notes": "Sliding-window algorithm; key by IP+account. For a single-node self-host without Redis, a Postgres-backed or in-memory token bucket also works."
+      },
+      {
+        "name": "file-type",
+        "purpose": "Server-side magic-byte MIME sniffing of uploads",
+        "notes": "Detect real type from content instead of trusting Content-Type/extension; pair with a strict allowlist. Apache Tika is the heavier alternative."
+      },
+      {
+        "name": "zod",
+        "purpose": "Server-side validation of form/action inputs (credentials, share config, ACL grants)",
+        "notes": "Used in official Next.js auth guide; validate before any DB/provider call."
+      },
+      {
+        "name": "sharp",
+        "purpose": "Re-encode/normalize uploaded images to strip embedded payloads/polyglots",
+        "notes": "Optional hardening: re-processing an image drops appended script/polyglot content."
+      },
+      {
+        "name": "Prisma",
+        "purpose": "Typed schema + parameterized queries for User, Session, ShareLink, Permission/ACL tables",
+        "notes": "Use for the recursive/ancestor ACL resolution (raw CTE via $queryRaw if needed) and idempotent admin upsert at startup."
+      }
+    ],
+    "pitfalls": [
+      "Relying on middleware for authorization — CVE-2025-29927 (patched 15.2.3) let a forged x-middleware-subrequest header bypass it; middleware is optimistic UX only, the DAL is the boundary.",
+      "Trusting the client Content-Type header or file extension for upload type validation — both are attacker-controlled; sniff magic bytes and allowlist. Also beware polyglot files and forged magic bytes.",
+      "Concatenating user-supplied folder/file names into disk paths — enables ../ traversal and overwriting critical files; resolve and confine to STORAGE_ROOT, or store by UUID and keep the tree only in the DB.",
+      "Storing uploads inside Next.js public/ or any web-served directory, or a directory where the web server executes scripts — serve through a controller with Content-Disposition: attachment + nosniff instead.",
+      "Storing raw share tokens (or raw password-reset tokens) in the DB — store only a hash so a DB leak doesn't hand out live links; also don't send tokens over non-HTTPS.",
+      "Putting session tokens/JWTs in localStorage — readable by any XSS; use httpOnly cookies.",
+      "Using bcrypt without accounting for its 72-byte truncation, or at cost <12; long passphrases get silently cut.",
+      "Non-atomic max-download enforcement (read-then-write) — a race lets concurrent requests exceed the limit; use a conditional UPDATE (WHERE downloadCount < maxDownloads).",
+      "Doing the auth check only in a Layout — partial rendering means it won't re-run on client-side navigation; check near the data.",
+      "Overwriting the admin password on every container restart from env — makes rotation impossible and risks leaking via logs; use idempotent upsert (create-if-absent) and never log plaintext.",
+      "Forgetting CSRF tokens on custom cookie-authenticated POST/PUT/DELETE Route Handlers — those don't get the automatic Origin/Host check that Server Actions do.",
+      "Returning whole DB objects (e.g. the full user row with password hash) to the client — use DTOs / explicit column selection."
+    ],
+    "codeOrConfigPatterns": "// 1) argon2id hashing (OWASP params)\nimport argon2 from 'argon2'\nconst hash = await argon2.hash(password, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 })\nconst ok = await argon2.verify(hash, password)\n\n// 2) Session cookie (Next.js official options)\ncookieStore.set('session', encryptedSessionId, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', expires: expiresAt })\n\n// 3) DAL authz gate reused in every action/route handler\nexport const verifySession = cache(async () => {\n  const c = (await cookies()).get('session')?.value\n  const s = await decrypt(c)\n  if (!s?.userId) redirect('/login')\n  return { userId: s.userId, role: s.role }\n})\n// server action:\n'use server'\nexport async function deleteFile(id: string) {\n  const s = await verifySession()\n  await assertCanWrite(s.userId, id) // ACL check -> throws/403 if not allowed\n  /* ... */\n}\n\n// 4) Share token: 256-bit CSPRNG, store only the hash\nimport { randomBytes, createHash } from 'crypto'\nconst token = randomBytes(32).toString('base64url')\nconst tokenHash = createHash('sha256').update(token).digest('hex') // store tokenHash, return token in URL once\n\n// 5) Atomic max-download enforcement\n// UPDATE \"ShareLink\" SET \"downloadCount\" = \"downloadCount\" + 1\n//   WHERE id = $1 AND \"revokedAt\" IS NULL AND (\"expiresAt\" IS NULL OR \"expiresAt\" > now())\n//     AND (\"maxDownloads\" IS NULL OR \"downloadCount\" < \"maxDownloads\") RETURNING id;  -- 0 rows => reject\n\n// 6) Path-traversal confinement\nimport path from 'path'\nconst abs = path.resolve(STORAGE_ROOT, userRelPath)\nif (abs !== STORAGE_ROOT && !abs.startsWith(STORAGE_ROOT + path.sep)) throw new Error('path traversal')\n\n// 7) Upload sniff + allowlist\nimport { fileTypeFromBuffer } from 'file-type'\nconst ft = await fileTypeFromBuffer(buf)\nconst ALLOW = new Set(['image/png','image/jpeg','application/pdf'])\nif (!ft || !ALLOW.has(ft.mime)) throw new Error('type not allowed')\n// store as `${crypto.randomUUID()}` outside web root; keep originalName in DB only\n\n// 8) Idempotent admin seed at startup\nawait prisma.user.upsert({\n  where: { email: process.env.ADMIN_EMAIL! },\n  update: {}, // no-op: never clobber a rotated password\n  create: { email: process.env.ADMIN_EMAIL!, role: 'ADMIN', passwordHash: await argon2.hash(process.env.ADMIN_PASSWORD!, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }) },\n}) // never console.log the plaintext\n\n// ACL / Permission table (Prisma)\n// model Permission { id String @id @default(cuid()) resourceType ResType resourceId String principalType PrinType principalId String level Level grantedBy String createdAt DateTime @default(now()) @@unique([resourceType, resourceId, principalType, principalId]) }\n// Effective access = direct grant on item OR any grant on an ancestor folder (walk path/ancestorIds or recursive CTE); take most-permissive level.\n\n// next.config: serverActions: { allowedOrigins: ['your-domain.example'] }  // when behind reverse proxy",
+    "sources": [
+      "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html",
+      "https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html",
+      "https://nextjs.org/docs/app/guides/authentication",
+      "https://nextjs.org/blog/security-nextjs-server-components-actions",
+      "https://nextjs.org/docs/app/guides/data-security",
+      "https://nextjs.org/docs/app/api-reference/config/next-config-js/serverActions",
+      "https://www.authgear.com/post/nextjs-security-best-practices/",
+      "https://www.authgear.com/post/nextjs-session-management/",
+      "https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload",
+      "https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html",
+      "https://upstash.com/blog/nextjs-ratelimiting",
+      "https://auth0.com/docs/secure/tokens/token-best-practices",
+      "https://thecopenhagenbook.com/"
+    ]
+  },
+  {
+    "dimension": "Large-file / resumable upload & storage strategy (Next.js 15 App Router, local-disk-now / S3-later)",
+    "summary": "For a file-sharing platform on Next.js 15 that must handle multi-GB files of any type, the clear recommendation is to standardize on the **tus resumable-upload protocol** end to end: `tus-js-client` (or Uppy's `@uppy/tus` for a batteries-included UI) on the client, and **`@tus/server` v2** mounted in an App Router catch-all route handler on the server. tus v2 exposes `server.handleWeb(request)`, which consumes the Web `Request`/`ReadableStream` directly, so it fits App Router natively and streams chunks to disk without buffering whole files in memory. tus's pluggable datastores (`@tus/file-store` now, `@tus/s3-store` later) already give you most of the StorageProvider abstraction for the *upload path*; wrap them (plus your own read/download path) behind a small `StorageProvider` interface (put/get/delete/stream/exists) with a `LocalDiskProvider` and an `S3Provider`. Enforce per-user quota in the `onUploadCreate` hook (reject before bytes flow) and reconcile actual size in `onUploadFinish`. Do content-addressing by streaming a `crypto.createHash('sha256')` alongside the write (via `stream.pipeline` / a Transform), naming the final blob by its digest for dedup + integrity. Generate thumbnails/posters asynchronously *after* upload finishes (`sharp` for images, `fluent-ffmpeg` + `ffmpeg-static` for video keyframes → `sharp`), stored next to blobs under a derived-assets namespace. Serve downloads/streaming through a dedicated route that parses the `Range` header and returns `206 Partial Content` with `Content-Range`/`Accept-Ranges` (Next.js has no built-in Range support), backed by a Node `fs.createReadStream(path, {start, end})`. Critically: do NOT use `request.formData()` for large files (it buffers), and never rely on tuning `bodyParser`/route body limits — chunked tus uploads sidestep the whole body-size-limit problem because each PATCH is only one small chunk.",
+    "keyRecommendations": [
+      "Adopt the tus protocol as the single upload transport. Client: tus-js-client directly, or Uppy (@uppy/core + @uppy/tus + @uppy/dashboard/@uppy/react) for a ready pause/resume/progress/parallel UI. Server: @tus/server v2 in an App Router catch-all route. This gives resumable, pause/resume, chunked, and retry-on-network-drop for free and makes multi-GB uploads robust over flaky connections.",
+      "Mount @tus/server v2 with server.handleWeb(req) in app/api/upload/[[...slug]]/route.ts, exporting POST, PATCH, HEAD, GET, DELETE, OPTIONS. handleWeb takes the Web Request and streams the request body (a ReadableStream) straight into the datastore — no whole-file buffering. Because uploads are split into chunks, each HTTP request carries only chunkSize bytes, so you never hit App Router body-size limits.",
+      "Do NOT use request.formData()/request.json() for big files (they buffer the entire body in RAM). If you ever need a non-tus raw stream path, convert Node stream with Readable.fromWeb(request.body) and pipe to disk with stream.pipeline; but prefer tus. Set `export const runtime = 'nodejs'` (not edge) and `export const dynamic = 'force-dynamic'` on the upload route so it runs on Node with fs access and isn't cached.",
+      "Define a StorageProvider interface { put(key, stream, meta), get(key), stream(key, {start,end}), delete(key), exists(key), stat(key) } and code the whole app against it. Ship LocalDiskProvider (fs.createReadStream/createWriteStream under a Docker volume path from env, e.g. STORAGE_ROOT=/data) first; add S3Provider (@aws-sdk/client-s3 + @aws-sdk/lib-storage Upload for multipart, GetObjectCommand with Range for streaming) later. tus's FileStore↔S3Store swap covers the upload leg; your provider covers reads/downloads/thumbnails. MinIO is S3-compatible, so the same S3Provider works by just changing endpoint/forcePathStyle.",
+      "Use content-addressed storage: stream the upload through crypto.createHash('sha256') as it's written, then store the blob at a path derived from the digest (e.g. /data/blobs/ab/cd/abcd...). On finish, if that hash already exists, dedup (don't re-store; just add a DB reference) and the hash doubles as an integrity checksum. Keep human filename + owner + content-hash in your DB (Postgres/SQLite), separate from the physical blob.",
+      "Enforce per-user quota in the onUploadCreate hook: read declared Upload-Length from metadata, look up the user's current usage + limit in the DB, and throw {status_code:413, body:'quota exceeded'} to reject BEFORE any bytes are stored. Reconcile actual stored size in onUploadFinish (update usage counter), and decrement on delete. This rejects early instead of after a multi-GB transfer.",
+      "Generate derived assets asynchronously after onUploadFinish (enqueue a job; don't block the request): sharp for image thumbnails/resizes (sharp(input).resize(...).webp().toFile(...)), and fluent-ffmpeg + ffmpeg-static to extract a video poster frame (.screenshots with -ss before input for fast seek) then pipe the JPEG through sharp. Store derived assets under a parallel namespace keyed by source hash (e.g. /data/derived/<hash>/thumb.webp) so they're cache-friendly and regenerable.",
+      "Serve downloads/video/audio through a dedicated route that supports HTTP Range: parse the Range header, return 206 with Content-Range, Content-Length (of the slice), Accept-Ranges: bytes, and the byte slice via fs.createReadStream(path,{start,end}); return 200 + Accept-Ranges when no Range header. This is mandatory for video seeking and Safari, which refuses to play sources that don't answer Range correctly."
+    ],
+    "libraries": [
+      {
+        "name": "@tus/server",
+        "purpose": "Server-side tus resumable-upload protocol implementation; mount in an App Router route via server.handleWeb(request)",
+        "notes": "v2.x. Zero-dependency core. Options: path, datastore, maxSize, respectForwardedHeaders, namingFunction, onUploadCreate, onUploadFinish, onIncomingRequest, generateUrl/relativeLocation. handleWeb() consumes Web Request/ReadableStream — the key to App Router compatibility and streaming without buffering."
+      },
+      {
+        "name": "@tus/file-store",
+        "purpose": "Local-disk datastore for @tus/server (writes upload chunks + .json metadata to a directory)",
+        "notes": "new FileStore({ directory: process.env.STORAGE_ROOT, expirationPeriodInMilliseconds }). This is your LocalDiskProvider for the upload leg; point directory at the Docker volume."
+      },
+      {
+        "name": "@tus/s3-store",
+        "purpose": "S3 / MinIO datastore for @tus/server — the drop-in swap for cloud storage later",
+        "notes": "Uses S3 multipart upload under the hood; configurable partSize, minPartSize, cache, expiration. Swapping FileStore→S3Store requires no application-code changes, which is exactly the abstraction the task wants."
+      },
+      {
+        "name": "tus-js-client",
+        "purpose": "Browser/Node client for tus — low-level resumable upload with progress, pause/resume, retry",
+        "notes": "v4.x. new tus.Upload(file, { endpoint, chunkSize, retryDelays, metadata:{filename,filetype}, onProgress, onSuccess }). Use directly if you build your own UI; parallelUploads option enables splitting a file into parallel streams."
+      },
+      {
+        "name": "@uppy/core + @uppy/tus + @uppy/dashboard + @uppy/react",
+        "purpose": "Batteries-included upload UI (drag-drop, progress bars, pause/resume, retries) wired to the tus protocol",
+        "notes": "Install @uppy/core @uppy/dashboard @uppy/react @uppy/tus. Use in a 'use client' component; create the Uppy instance inside a useState initializer function so it isn't recreated each render. new Uppy().use(Tus, { endpoint:'/api/upload', chunkSize, retryDelays }). Recommended if you don't want to hand-build the UI."
+      },
+      {
+        "name": "sharp",
+        "purpose": "Fast native image processing for server-side thumbnails/resizes/format conversion (WebP/AVIF)",
+        "notes": "sharp(inputPathOrBuffer).resize(320).webp({quality:75}).toFile(out). Runs libvips; keep it on the Node runtime. In Docker use a compatible base image (node:*-bookworm/-slim works with prebuilt binaries)."
+      },
+      {
+        "name": "fluent-ffmpeg + ffmpeg-static",
+        "purpose": "Extract video poster/thumbnail keyframes (and probe duration/dimensions) server-side",
+        "notes": "ffmpeg-static ships the ffmpeg binary as an npm dep (ffmpeg.setFfmpegPath). Use .screenshots({count/timestamps, folder, size}); put -ss (seek) before input for 10-50x faster seeking on long videos. ALWAYS pass an existing folder or ffmpeg exits silently. Run in a background worker, not in the request."
+      },
+      {
+        "name": "@aws-sdk/client-s3 + @aws-sdk/lib-storage",
+        "purpose": "S3/MinIO implementation of your StorageProvider read/download/put path (multipart via lib-storage Upload)",
+        "notes": "lib-storage Upload handles multipart automatically for large puts; GetObjectCommand accepts Range for 206 streaming. For MinIO set endpoint + forcePathStyle:true. Only needed when you flip storage to S3."
+      },
+      {
+        "name": "stream / crypto (Node built-ins)",
+        "purpose": "Streaming sha256 content-addressing and Range file reads without extra deps",
+        "notes": "crypto.createHash('sha256'), stream.pipeline (promisified), fs.createReadStream(path,{start,end}), Readable.fromWeb(request.body). No install needed."
+      }
+    ],
+    "pitfalls": [
+      "request.formData() / request.json() buffer the ENTIRE body into memory — using them on a multi-GB upload will OOM the container. Never use them for large files; stream instead (tus does this for you).",
+      "There is NO supported way to raise the App Router Route Handler body-size limit the way Pages Router allowed (the old `export const config = { api: { bodyParser } }` does not apply to route.ts). Reverse proxies (nginx client_max_body_size, Vercel's ~4.5MB serverless body cap) also cap single-request size. Chunked tus uploads dodge all of this because each PATCH is only chunkSize bytes.",
+      "Run the upload/download/thumbnail routes on the Node.js runtime (`export const runtime='nodejs'`), NOT edge — you need fs, streams, sharp and ffmpeg native binaries. Also set `dynamic='force-dynamic'` so responses aren't statically cached.",
+      "Next.js has no built-in HTTP Range support; if you just return the file, video seeking breaks and Safari may refuse to play the video entirely. You must hand-implement 206/Content-Range.",
+      "fluent-ffmpeg .screenshots() silently no-ops (no error event) if the output folder doesn't already exist — create it first. And put -ss before -i or seeking a long video is extremely slow.",
+      "Do thumbnail/poster generation in a background job triggered by onUploadFinish, not inline — ffmpeg/sharp on a GB video can block/slow the response. Likewise, hashing a GB file briefly ties up work; a streaming hash during write is fine, but re-hashing after the fact should be queued.",
+      "sharp and ffmpeg-static are native/binary deps — verify they resolve inside your Docker image (glibc vs musl: prefer a Debian-based node image, or install the right sharp platform build). Bundle/serverless tracing can miss the ffmpeg binary; ensure it's included.",
+      "When you swap to S3/MinIO, presigned-URL direct-to-storage uploads bypass your quota/hash hooks — if you want server-enforced quota + content-addressing you must either proxy through @tus/s3-store (keeps hooks) or run validation via S3 event notifications.",
+      "Content-addressed (hash-named) blobs mean deletes must be reference-counted: two users uploading the same file share one blob; only physically delete when the last reference is gone."
+    ],
+    "codeOrConfigPatterns": "// ---------- 1) @tus/server in an App Router catch-all route ----------\n// app/api/upload/[[...slug]]/route.ts\nimport { Server } from '@tus/server';\nimport { FileStore } from '@tus/file-store';\n// later: import { S3Store } from '@tus/s3-store';\n\nexport const runtime = 'nodejs';\nexport const dynamic = 'force-dynamic';\n\nconst tus = new Server({\n  path: '/api/upload',\n  datastore: new FileStore({ directory: process.env.STORAGE_ROOT! }), // Docker volume, e.g. /data/uploads\n  // swap later: new S3Store({ partSize: 8*1024*1024, s3ClientConfig: {...} })\n  maxSize: 20 * 1024 * 1024 * 1024, // 20 GB hard cap (or return per-user in hook)\n  respectForwardedHeaders: true,\n\n  // ---- per-user QUOTA enforced BEFORE bytes flow ----\n  async onUploadCreate(req, upload) {\n    const userId = await authUser(req);\n    const declared = Number(upload.size ?? 0);            // Upload-Length\n    const { used, limit } = await getQuota(userId);\n    if (used + declared > limit) {\n      throw { status_code: 413, body: 'Storage quota exceeded' };\n    }\n    return { metadata: { ...upload.metadata, userId } };\n  },\n\n  // ---- finalize: reconcile usage, hash, dedup, enqueue thumbs ----\n  async onUploadFinish(req, upload) {\n    const userId = upload.metadata?.userId!;\n    await incrementUsage(userId, upload.size ?? 0);\n    // path of the finished blob = join(STORAGE_ROOT, upload.id)\n    await enqueue('post-process', { id: upload.id, meta: upload.metadata });\n    return {};\n  },\n});\n\nconst handler = (req: Request) => tus.handleWeb(req); // consumes Web ReadableStream, no buffering\nexport { handler as POST, handler as PATCH, handler as HEAD,\n         handler as GET, handler as DELETE, handler as OPTIONS };\n\n// ---------- 2) Client: Uppy + Tus (client component) ----------\n'use client';\nimport { useState } from 'react';\nimport Uppy from '@uppy/core';\nimport Tus from '@uppy/tus';\nimport { Dashboard } from '@uppy/react';\nexport function Uploader() {\n  const [uppy] = useState(() => new Uppy().use(Tus, {\n    endpoint: '/api/upload',\n    chunkSize: 8 * 1024 * 1024,          // 8 MB chunks -> pause/resume/retry per chunk\n    retryDelays: [0, 1000, 3000, 5000],\n  }));\n  return <Dashboard uppy={uppy} />;\n}\n// (low-level alt) new tus.Upload(file,{endpoint,chunkSize,parallelUploads:4,onProgress,onSuccess}).start();\n\n// ---------- 3) StorageProvider abstraction ----------\nexport interface StorageProvider {\n  put(key: string, body: Readable, meta?: Record<string,string>): Promise<{ size:number; hash:string }>;\n  get(key: string): Promise<Readable>;\n  stream(key: string, range?: { start:number; end:number }): Promise<Readable>;\n  stat(key: string): Promise<{ size:number } | null>;\n  exists(key: string): Promise<boolean>;\n  delete(key: string): Promise<void>;\n}\n// LocalDiskProvider (streaming write + sha256 content-addressing)\nimport { createWriteStream, createReadStream } from 'node:fs';\nimport { pipeline } from 'node:stream/promises';\nimport { createHash } from 'node:crypto';\nimport { stat, rename, mkdir } from 'node:fs/promises';\nimport { join, dirname } from 'node:path';\nclass LocalDiskProvider implements StorageProvider {\n  constructor(private root: string) {}\n  private p(key:string){ return join(this.root, key); }\n  async put(key:string, body:Readable){\n    const tmp = this.p(key)+'.part';\n    await mkdir(dirname(tmp),{recursive:true});\n    const hash = createHash('sha256');\n    body.on('data', c => hash.update(c));           // hash while writing\n    await pipeline(body, createWriteStream(tmp));\n    const digest = hash.digest('hex');\n    const finalKey = `blobs/${digest.slice(0,2)}/${digest.slice(2,4)}/${digest}`;\n    const dest = this.p(finalKey);\n    await mkdir(dirname(dest),{recursive:true});\n    await rename(tmp, dest);                          // content-addressed name = dedup + integrity\n    const { size } = await stat(dest);\n    return { size, hash: digest, key: finalKey } as any;\n  }\n  async stream(key:string, range?:{start:number;end:number}){\n    return createReadStream(this.p(key), range);     // {start,end} -> partial read\n  }\n  /* get/stat/exists/delete via fs; S3Provider = GetObjectCommand({Range}) + lib-storage Upload */\n}\n\n// ---------- 4) Download route with HTTP Range (206) ----------\n// app/api/files/[id]/route.ts\nexport const runtime = 'nodejs';\nexport async function GET(req: Request, { params }:{params:{id:string}}) {\n  const { key, size, contentType } = await lookup(params.id);\n  const range = req.headers.get('range');\n  if (!range) {\n    const body = await storage.stream(key);\n    return new Response(Readable.toWeb(body) as any, {\n      headers: { 'Content-Length': String(size), 'Content-Type': contentType,\n                 'Accept-Ranges': 'bytes' } });\n  }\n  const m = /bytes=(\\d*)-(\\d*)/.exec(range)!;\n  const start = m[1] ? parseInt(m[1]) : 0;\n  const end   = m[2] ? parseInt(m[2]) : size - 1;\n  const body = await storage.stream(key, { start, end });\n  return new Response(Readable.toWeb(body) as any, {\n    status: 206,\n    headers: { 'Content-Range': `bytes ${start}-${end}/${size}`,\n               'Accept-Ranges': 'bytes',\n               'Content-Length': String(end - start + 1),\n               'Content-Type': contentType } });\n}\n\n// ---------- 6) Post-upload thumbnails (background worker) ----------\nimport sharp from 'sharp';\nimport ffmpeg from 'fluent-ffmpeg';\nimport ffmpegPath from 'ffmpeg-static';\nffmpeg.setFfmpegPath(ffmpegPath!);\n// image:\nawait sharp(srcPath).resize(400).webp({quality:75}).toFile(`derived/${hash}/thumb.webp`);\n// video poster (seek before input = fast); folder MUST exist:\nffmpeg(srcPath).screenshots({ timestamps:['5%'], filename:'poster.jpg',\n  folder:`derived/${hash}`, size:'640x?' });",
+    "sources": [
+      "https://tus.io/",
+      "https://tus.io/blog/2025/03/25/tus-node-server-v200",
+      "https://github.com/tus/tus-node-server",
+      "https://www.npmjs.com/package/@tus/server",
+      "https://github.com/tus/tus-js-client",
+      "https://uppy.io/docs/nextjs/",
+      "https://uppy.io/docs/tus/",
+      "https://supabase.com/docs/guides/storage/uploads/resumable-uploads",
+      "https://github.com/vercel/next.js/discussions/70621",
+      "https://nextjs.org/docs/app/api-reference/file-conventions/route",
+      "https://dev.to/grimshinigami/how-to-handle-large-filefiles-streams-in-nextjs-13-using-busboymulter-25gb",
+      "https://transloadit.com/devtips/efficient-file-deduplication-with-sha-256-and-node-js/",
+      "https://medium.com/@Praxen/node-js-streaming-uploads-without-buffering-5316dae9574d",
+      "https://smoores.dev/post/http_range_requests/",
+      "https://dev.to/edumqs/nodejs-stream-from-s3-with-partial-content-support-206-324i",
+      "https://dev.to/kyle_clipspeedai/building-a-video-thumbnail-generator-with-ffmpeg-and-nodejs-4jel",
+      "https://medium.com/trackit/chaining-image-video-transformations-with-sharp-and-ffmpeg-e13954273173",
+      "https://transloadit.com/devtips/stream-video-processing-with-node-js-and-ffmpeg/"
+    ]
+  },
+  {
+    "dimension": "In-browser file preview & media player integration for a React / Next.js 15 file-sharing app (2025–2026)",
+    "summary": "A per-type stack that keeps the initial bundle small by lazy-loading every heavy viewer through next/dynamic (ssr:false). Recommended picks: images -> yet-another-react-lightbox (plugin-based, thumbnails + zoom/pan) with react-photo-view as a lighter alternative; video -> Vidstack (@vidstack/react) as the single recommendation (modern successor to Plyr/Vime, RSC-friendly, HLS/DASH/MP4, native HTML5 range seeking, modular so bundle stays lean); audio -> Vidstack's audio layout for the default player, add @wavesurfer/react only where a waveform is genuinely wanted; PDF -> react-pdf (pdfjs-dist), which no longer needs next.config tweaks on Next 15; code/text/markdown -> react-markdown + Shiki (via a server component / rehype at build or request time) with react-shiki only for client rendering, Prism/react-syntax-highlighter as the lightweight client fallback; office docs -> render docx inline with docx-preview and xlsx with SheetJS (xlsx) to an HTML table, but treat pptx / legacy binary formats as download-or-iframe-only (no good free client renderer); everything else -> a generic icon + metadata + download card, optionally an <iframe> for browser-native types. All viewers behind dynamic imports so images/video/pdf/office code never lands in the first-load JS.",
+    "keyRecommendations": [
+      "Images: use yet-another-react-lightbox (core ~14KB gz) and add only the plugins you need (Zoom, Thumbnails, Fullscreen, Slideshow, Captions) — it defers modal JS until interaction. Choose react-photo-view (~7KB gz) instead when you want a lighter, single-dependency component with excellent pinch/pan touch gestures and don't need the plugin ecosystem. Avoid the abandoned react-image-lightbox.",
+      "Video: pick ONE — Vidstack (@vidstack/react). It is the modern successor to Plyr 3 / Vime, is built as web components + a first-class React lib, is Next.js/RSC compatible, ships modular so you only pay for what you use, plays MP4/WebM natively plus HLS/DASH (via lazy-loaded hls.js / dash.js) and DRM. Native HTML5 <video> gives you HTTP Range byte-seeking for free as long as your file server returns 206 Partial Content with Accept-Ranges: bytes. Use react-player only if you must embed YouTube/Vimeo/Twitch URLs; use video.js only if you need its mature plugin ecosystem (it is the heaviest option, ~150KB+ gz).",
+      "Audio: reuse Vidstack's audio layout for a consistent, accessible default player (no extra dependency). Add @wavesurfer/react (official React bindings for wavesurfer.js v7) only for views where a waveform/scrubbing visual matters — it is canvas/WebAudio heavy, so lazy-load it and feed pre-computed peaks for large files to cut load time.",
+      "PDF: use react-pdf (wraps pdfjs-dist). On Next.js 15 the previous next.config.js worker workaround is no longer required; set GlobalWorkerOptions.workerSrc in the same client module that renders <Document>, and copy/point the worker (pdf.worker.min.mjs) as a static asset. pdf.js core + worker is large (~300KB+ gz), so gate the whole viewer behind next/dynamic(ssr:false). For heavy/enterprise fidelity, a commercial SDK (Nutrient/Apryse) is the paid alternative — not needed for basic preview.",
+      "Code / text / markdown: use react-markdown (+ remark-gfm) for the document, and Shiki for syntax highlighting because it produces VS Code-quality, accurate TextMate-grammar output. Do the highlighting on the server (RSC / rehype-shiki / rehype-pretty-code at build or request time) so zero highlighter JS ships to the client. If you must highlight in the browser use react-shiki (load the fine-grained/web bundle and only the languages you need — the full bundle is ~1.2MB) or fall back to Prism / react-syntax-highlighter (~2KB core + ~0.3–0.5KB per language) when bundle size beats fidelity.",
+      "Office docs: be realistic. Render .docx inline with docx-preview (decent fidelity, client-side, no server) and .xlsx with SheetJS/xlsx converted to an HTML table (or a grid component). There is NO reliable free client-side .pptx or legacy .doc/.ppt renderer — offer download, or an <iframe> to Microsoft Office Online / Google Docs Viewer (requires the file to be publicly reachable), or a commercial SDK. @cyntler/react-doc-viewer bundles several of these but lags on modern-format fidelity.",
+      "Fallback: for unsupported/unknown types show a file-type icon + name/size/metadata + a prominent Download button. Use a native <iframe> for types the browser renders itself (single images, plain PDFs on modern browsers, .txt), and never attempt to parse binary blobs client-side.",
+      "Lazy-loading (cross-cutting): wrap EVERY heavy viewer (lightbox, Vidstack, wavesurfer, react-pdf, Shiki-client, docx-preview, SheetJS) in next/dynamic(() => import(...), { ssr:false, loading: <Skeleton/> }). Route the file to the correct viewer by MIME/extension so only the matching chunk downloads. This keeps first-load JS to the shell; each viewer becomes its own on-demand chunk."
+    ],
+    "libraries": [
+      {
+        "name": "yet-another-react-lightbox",
+        "purpose": "Primary image lightbox/gallery: swipe, thumbnails, captions, slideshow, fullscreen, and zoom/pan via optional plugins.",
+        "notes": "Core ~14KB gz; plugins add incrementally (Zoom, Thumbnails, Fullscreen, Slideshow, Captions). Defers modal JS until user interaction. TS-native, actively maintained (igordanchenko). A ~5.5KB 'lite' variant exists."
+      },
+      {
+        "name": "react-photo-view",
+        "purpose": "Lighter-weight image preview alternative with strong touch pinch-zoom/pan and physics-based drag.",
+        "notes": "~7KB gz, single dependency, SSR-safe, TypeScript. Good when you don't need YARL's plugin ecosystem. Repo MinJieLiu/react-photo-view."
+      },
+      {
+        "name": "@vidstack/react",
+        "purpose": "RECOMMENDED video player (and reusable audio player): MP4/WebM/HLS/DASH, DRM, accessible, customizable, RSC/Next-compatible.",
+        "notes": "Modern successor to Plyr 3 / Vime 5. Modular architecture keeps bundle lean; ships web components + React lib. Native <video> yields HTTP Range seeking when the server returns 206/Accept-Ranges. HLS/DASH engines (hls.js/dash.js) load lazily. Includes a Plyr layout for easy migration."
+      },
+      {
+        "name": "react-player",
+        "purpose": "Use only if embedding external streaming URLs (YouTube, Vimeo, Twitch, Facebook) alongside file playback.",
+        "notes": "~1M weekly downloads, unified API across platforms. Less suited to serving large self-hosted files at scale; not the pick for a file-sharing app's own media."
+      },
+      {
+        "name": "video.js",
+        "purpose": "Alternative video player when a mature plugin ecosystem / enterprise streaming features are required.",
+        "notes": "38.5k stars, very mature, HLS/DASH via plugins. Heaviest option (~150KB+ gz). Prefer Vidstack unless you specifically need videojs plugins."
+      },
+      {
+        "name": "@wavesurfer/react",
+        "purpose": "Optional audio waveform visualization + scrub UI on top of wavesurfer.js v7.",
+        "notes": "Official React bindings; wavesurfer options become props, events become prop callbacks. Canvas/WebAudio heavy — lazy-load and pass pre-computed peaks for large files. Only add where a waveform adds value; otherwise reuse Vidstack's audio layout."
+      },
+      {
+        "name": "react-pdf",
+        "purpose": "In-browser PDF preview; wraps pdfjs-dist (Mozilla pdf.js).",
+        "notes": "On Next.js 15 the old next.config worker workaround is gone. Set GlobalWorkerOptions.workerSrc in the same client module as <Document>; serve pdf.worker.min.mjs as a static asset. Core+worker ~300KB+ gz — always dynamic-import with ssr:false."
+      },
+      {
+        "name": "pdfjs-dist",
+        "purpose": "Underlying PDF engine; can be used directly for a custom canvas viewer if you don't want react-pdf's component layer.",
+        "notes": "Web-worker offloads parsing/rendering. Version-match the worker file to the installed pdfjs-dist to avoid API mismatch errors."
+      },
+      {
+        "name": "react-markdown",
+        "purpose": "Render markdown files safely to React elements; extend with remark-gfm (tables/strikethrough/task lists) and rehype plugins.",
+        "notes": "Does not use dangerouslySetInnerHTML; sanitize with rehype-sanitize if rendering untrusted user content. Pair with a code-block component for highlighting."
+      },
+      {
+        "name": "shiki",
+        "purpose": "RECOMMENDED syntax highlighter: VS Code TextMate-grammar accuracy for code/text file preview.",
+        "notes": "Best done server-side (RSC, or rehype-shiki / rehype-pretty-code at build/request) so no highlighter JS ships to client. Full bundle ~1.2MB, web bundle ~695KB — use fine-grained imports + only needed languages/themes if run client-side."
+      },
+      {
+        "name": "react-shiki",
+        "purpose": "Client-side Shiki hook/component when highlighting must happen in the browser (e.g. user-pasted or dynamically fetched code).",
+        "notes": "Exports isInlineCode + rehypeInlineCodeProperty for clean react-markdown integration. Not for RSC/static — use Shiki's native integrations there. Load web/minimal bundle to control size."
+      },
+      {
+        "name": "react-syntax-highlighter",
+        "purpose": "Lightweight client highlighting fallback (Prism or highlight.js core) when bundle size beats fidelity.",
+        "notes": "Prism core ~2KB + ~0.3–0.5KB per language. Use PrismAsyncLight/PrismLight with per-language registration to avoid pulling every grammar."
+      },
+      {
+        "name": "docx-preview",
+        "purpose": "Render .docx inline in the browser with reasonable formatting fidelity (no server, no MS Office).",
+        "notes": "Client-side; supports multi-page rendering. Good default for Word docs. Lazy-load. No support for legacy .doc binary."
+      },
+      {
+        "name": "xlsx (SheetJS)",
+        "purpose": "Parse .xlsx/.xls/.csv in the browser and render sheets to an HTML table or grid for preview.",
+        "notes": "Use the community build; convert workbook -> sheet_to_html or feed a data grid. Large workbooks are memory-heavy — cap rows/preview first sheet. Lazy-load."
+      },
+      {
+        "name": "@cyntler/react-doc-viewer",
+        "purpose": "All-in-one multi-format viewer (doc/docx/xls/xlsx/ppt/pptx/pdf/images) if you want one component instead of wiring each library.",
+        "notes": "Convenient but modern-Office fidelity lags dedicated libs; pptx rendering is weak. Fine as a quick unified fallback."
+      },
+      {
+        "name": "next/dynamic",
+        "purpose": "Core mechanism to lazy-load every heavy viewer as its own chunk and keep first-load JS to the app shell.",
+        "notes": "Use { ssr: false } for browser-only viewers (pdf.js, wavesurfer, docx-preview, client Shiki) and a loading skeleton. Composite of React.lazy + Suspense tuned for Next.js."
+      }
+    ],
+    "pitfalls": [
+      "HTTP Range seeking is a SERVER concern, not a player one: video/audio scrubbing only works if your file-serving route (Next Route Handler, S3/CDN, or storage proxy) honors the Range header and replies 206 Partial Content with Accept-Ranges: bytes and correct Content-Range. A handler that streams the whole body on every request breaks seeking and wastes bandwidth.",
+      "pdf.js worker version mismatch: the worker file version must exactly match the installed pdfjs-dist/react-pdf version or you get 'API version does not match Worker version' errors. Serve the worker locally (public/) rather than a CDN to keep versions locked, and set workerSrc in the same module that renders the PDF.",
+      "Shiki client bundle bloat: importing the full Shiki bundle (all languages/themes) can add ~1.2MB. For a file previewer, highlight on the server or lazy-load only the specific grammar for the file's language.",
+      "No free high-fidelity .pptx (or legacy .doc/.ppt/.xls binary) client renderer exists — don't promise inline PowerPoint preview. Fall back to download, Office/Google online viewer iframe (needs a publicly reachable URL, a privacy consideration for a file-sharing app), or a paid SDK.",
+      "wavesurfer.js does not expect React re-renders — using @wavesurfer/react (or a ref + effect with proper cleanup) is required; naive re-instantiation on every render causes leaks and duplicate canvases. Feed precomputed peaks for large audio to avoid decoding the whole file client-side.",
+      "ssr:false is mandatory for browser-only viewers: pdf.js, wavesurfer, docx-preview and client Shiki touch window/DOM/Canvas and will crash during Next server rendering if not dynamically imported with ssr disabled.",
+      "Sanitize markdown from untrusted uploads: react-markdown is safe by default but rehype-raw / allowing HTML re-opens XSS; add rehype-sanitize when previewing user-supplied markdown.",
+      "Bundle every viewer separately and route by MIME/extension — a single component that statically imports all viewers defeats lazy-loading and ships pdf.js + video engines + Shiki to users who only open an image."
+    ],
+    "codeOrConfigPatterns": "// Route file to the right lazy-loaded viewer; each becomes its own chunk.\n// components/preview/PreviewRouter.tsx\nimport dynamic from 'next/dynamic';\n\nconst skeleton = () => <ViewerSkeleton />;\nconst ImageLightbox = dynamic(() => import('./ImageLightbox'), { loading: skeleton });\nconst VideoPlayer   = dynamic(() => import('./VideoPlayer'),   { ssr: false, loading: skeleton });\nconst AudioPlayer   = dynamic(() => import('./AudioPlayer'),   { ssr: false, loading: skeleton });\nconst PdfViewer     = dynamic(() => import('./PdfViewer'),     { ssr: false, loading: skeleton });\nconst CodeViewer    = dynamic(() => import('./CodeViewer'),    { loading: skeleton });\nconst DocxViewer    = dynamic(() => import('./DocxViewer'),    { ssr: false, loading: skeleton });\nconst XlsxViewer    = dynamic(() => import('./XlsxViewer'),    { ssr: false, loading: skeleton });\nconst DownloadCard  = dynamic(() => import('./DownloadCard'));\n\nexport function PreviewRouter({ file }) {\n  const { mime, ext } = file;\n  if (mime.startsWith('image/')) return <ImageLightbox file={file} />;\n  if (mime.startsWith('video/')) return <VideoPlayer file={file} />;\n  if (mime.startsWith('audio/')) return <AudioPlayer file={file} />;\n  if (mime === 'application/pdf') return <PdfViewer file={file} />;\n  if (['md','txt','js','ts','py','json','css','html'].includes(ext)) return <CodeViewer file={file} />;\n  if (ext === 'docx') return <DocxViewer file={file} />;\n  if (['xlsx','xls','csv'].includes(ext)) return <XlsxViewer file={file} />;\n  return <DownloadCard file={file} />; // pptx, unknown, binary -> download/iframe\n}\n\n// --- Range-aware file streaming (required for video/audio seeking) ---\n// app/api/files/[id]/route.ts  (Next.js 15 Route Handler)\nexport async function GET(req, { params }) {\n  const range = req.headers.get('range');\n  const size = await getSize(params.id);\n  if (!range) {\n    return new Response(await getStream(params.id), {\n      headers: { 'Content-Length': String(size), 'Accept-Ranges': 'bytes', 'Content-Type': mime },\n    });\n  }\n  const [s, e] = range.replace('bytes=', '').split('-');\n  const start = Number(s); const end = e ? Number(e) : size - 1;\n  return new Response(await getStream(params.id, start, end), {\n    status: 206,\n    headers: {\n      'Content-Range': `bytes ${start}-${end}/${size}`,\n      'Accept-Ranges': 'bytes',\n      'Content-Length': String(end - start + 1),\n      'Content-Type': mime,\n    },\n  });\n}\n\n// --- react-pdf worker on Next 15 (set in the SAME client module) ---\n'use client';\nimport { Document, Page, pdfjs } from 'react-pdf';\npdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'; // copied to /public, version-matched\n\n// --- Shiki server-side highlight (zero client JS) inside react-markdown code block ---\n// use rehype-pretty-code / rehype-shiki at build or request time in an RSC.",
+    "sources": [
+      "https://yet-another-react-lightbox.com/",
+      "https://www.npmjs.com/package/yet-another-react-lightbox",
+      "https://github.com/igordanchenko/yet-another-react-lightbox",
+      "https://github.com/igordanchenko/yet-another-react-lightbox-lite",
+      "https://yet-another-react-lightbox.com/examples/nextjs",
+      "https://blog.logrocket.com/comparing-the-top-3-react-lightbox-libraries/",
+      "https://github.com/MinJieLiu/react-photo-view",
+      "https://blog.croct.com/post/best-react-video-libraries",
+      "https://vidstack.io/",
+      "https://vidstack.io/docs/player/getting-started/installation/react/",
+      "https://github.com/vidstack/player",
+      "https://www.npmjs.com/package/@vidstack/react",
+      "https://npm-compare.com/@vidstack/react,react-iframe,react-player",
+      "https://www.npmjs.com/package/@wavesurfer/react",
+      "https://dev.to/jamland/audio-player-with-wavesurfer-js-react-1g3b",
+      "https://www.zignuts.com/blog/react-wavesurfer-js-audio-waveform-guide",
+      "https://www.nutrient.io/blog/how-to-build-a-reactjs-viewer-with-pdfjs/",
+      "https://www.npmjs.com/package/react-pdf",
+      "https://nextjs.org/docs/app/guides/lazy-loading",
+      "https://www.codeline.co/thoughts/repo-review/2025/react-shiki-syntax-highlighting-hook",
+      "https://github.com/avgvstvs96/react-shiki",
+      "https://npm-compare.com/highlight.js,prismjs,react-syntax-highlighter,shiki",
+      "https://www.pkgpulse.com/guides/shiki-vs-prismjs-vs-highlightjs-syntax-highlighting-2026",
+      "https://houseofgiants.com/blog/five-syntax-highlighting-plugins-that-arent-terrible",
+      "https://jinlow.medium.com/master-document-preview-in-react-implementing-docx-pdf-excel-and-pptx-viewers-with-key-e0d3940b921f",
+      "https://github.com/cyntler/react-doc-viewer",
+      "https://www.nutrient.io/blog/how-to-build-a-reactjs-file-viewer/",
+      "https://apryse.com/blog/webviewer/how-view-xlsx-documents-in-a-react-app"
+    ]
+  },
+  {
+    "dimension": "Glassmorphism UI + Framer Motion (dark-neon / light) for Snakr — design tokens, class recipes, motion patterns, performance & a11y",
+    "summary": "A world-class glass UI in 2025-26 is not \"blur + transparency\" — it is a layered recipe: a semi-transparent surface, a real backdrop-blur WITH saturation boost, a hairline top-lit border, a soft outer shadow PLUS an inner top highlight, and a faint noise/grain overlay to kill banding. The dark-neon look only works because glass needs something to refract: you MUST place blurred aurora color-orbs (deep purple, cyan, hot magenta) behind the UI, otherwise dark glass is invisible on near-black. Pair a characterful display face (Clash Display / Cabinet Grotesk) for hero headlines with a clean neutral UI face (Satoshi or Inter) for body/controls. Motion (formerly Framer Motion) carries the \"premium\" feel: shared-element layoutId to expand a file card into a full preview, AnimatePresence route transitions, staggerChildren list reveals, spring-based magnetic/tilt hover cards driven by useMotionValue+useSpring, an animated aurora background, and whileInView scroll reveals. The two hard constraints that separate polished from janky: (1) backdrop-blur is GPU-expensive — isolate it to small fixed-size surfaces, promote with will-change/transform-gpu, never blur large scrolling regions, and provide a @media (prefers-reduced-transparency) opaque fallback; (2) wrap all decorative motion in prefers-reduced-motion and guarantee AA text contrast (>=4.5:1) by keeping a solid tint floor under text rather than relying on translucency.",
+    "keyRecommendations": [
+      "CORE GLASS RECIPE (layer all 6): surface tint + backdrop-blur + saturation + hairline border + dual shadow (outer soft + inner top highlight) + noise overlay. Tailwind: `relative isolate rounded-2xl bg-white/8 backdrop-blur-xl backdrop-saturate-150 border border-white/12 shadow-[0_8px_32px_rgba(0,0,0,0.45)] ring-1 ring-inset ring-white/8`. The `backdrop-saturate-150` is the secret ingredient — it makes the aurora colors bleed through vividly instead of washing out grey.",
+      "ALWAYS put an aurora behind glass. Dark glassmorphism is invisible on flat #0a0a0f — render 2-3 large blurred radial orbs (purple/cyan/magenta) that slowly drift. This is what the glass refracts; it is non-negotiable for the dark-neon default.",
+      "INNER TOP HIGHLIGHT sells the 'real glass' look: add a `::before` with `background: linear-gradient(180deg, rgba(255,255,255,.14), transparent 40%)` or `ring-inset ring-white/10`. This simulates light catching the top edge of the pane and is the #1 detail most tutorials omit.",
+      "NOISE/GRAIN overlay at ~3-5% opacity over the whole app removes gradient banding and adds a tactile, expensive feel. Use an inline SVG feTurbulence data-URI as a fixed, pointer-events-none, mix-blend-overlay layer — no image request, CSP-safe.",
+      "SHARED-ELEMENT PREVIEW is the hero interaction for a file-sharing app: give each file card and its expanded preview the same `layoutId={file.id}` inside AnimatePresence; Motion FLIP-animates the card growing into the full viewer using GPU transforms. This single pattern makes the app feel native.",
+      "TYPOGRAPHY: Clash Display (or Cabinet Grotesk) for oversized hero headlines at tight tracking + Satoshi (or Inter) for UI/body. Two families max, big size contrast (display 3-5rem / body 1rem). Use `font-feature-settings` and tabular-nums for file sizes.",
+      "PERFORMANCE: never apply backdrop-blur to a large or scrolling container — it re-rasterizes every frame and tanks FPS. Keep blurred surfaces small, fixed, `transform-gpu will-change-[transform]`, and animate position with transform (not top/left). Blur the ORB layer once (static) rather than blurring the glass over a moving background where possible.",
+      "ACCESSIBILITY: guarantee a minimum solid tint under any text (e.g. bg-white/8 in dark, bg-white/60 in light) so contrast never depends on what's behind the glass; verify >=4.5:1. Ship `@media (prefers-reduced-transparency: reduce)` -> opaque surfaces, and `@media (prefers-reduced-motion: reduce)` -> disable aurora drift, tilt, and route/layout animations."
+    ],
+    "libraries": [
+      {
+        "name": "motion (formerly framer-motion)",
+        "purpose": "All animation: layout/layoutId shared elements, AnimatePresence route transitions, staggerChildren, whileHover/whileTap/whileInView, useMotionValue/useSpring for tilt & magnetic",
+        "notes": "Package renamed to `motion` in 2024; import `motion`, `AnimatePresence`, `useMotionValue`, `useSpring`, `useTransform`, `LayoutGroup`, `stagger` from 'motion/react'. Layout animations run on CSS transform for 60fps."
+      },
+      {
+        "name": "tailwindcss",
+        "purpose": "Utility classes for the glass recipe: backdrop-blur-*, backdrop-saturate-*, bg-white/N, ring-inset, shadow-[...], transform-gpu, will-change-*",
+        "notes": "v3.4+ / v4. Add custom blur/opacity via arbitrary values e.g. `backdrop-blur-[24px]`. Define glass tokens as CSS variables and reference with `bg-[var(--glass)]`."
+      },
+      {
+        "name": "Fontshare (Clash Display, Cabinet Grotesk, Satoshi)",
+        "purpose": "Free premium display + UI typefaces for the characterful/clean pairing",
+        "notes": "Self-host the .woff2 to satisfy CSP and avoid CDN. Clash Display/Cabinet Grotesk = display; Satoshi = UI/body. Inter is the safe alternative UI face via next/font or self-host."
+      },
+      {
+        "name": "next/font (or @fontsource)",
+        "purpose": "Self-hosted, layout-shift-free font loading with font-display:swap and preloading",
+        "notes": "Avoids external font CDN requests; pairs with variable fonts for weight range on the display face."
+      },
+      {
+        "name": "React Parallax Tilt (optional)",
+        "purpose": "Drop-in 3D tilt for hover cards if you don't want to hand-roll it",
+        "notes": "Optional — the hand-rolled useMotionValue+useSpring tilt (in patterns) is lighter, CSP-safe, and integrates better with Motion. Prefer hand-rolled for full control."
+      },
+      {
+        "name": "shadcn/ui + shadcn-glass-ui (optional)",
+        "purpose": "Prebuilt accessible primitives (dialog, popover, tabs) you can skin with the glass tokens",
+        "notes": "Radix underneath gives focus management & a11y for the file-preview modal; overlay glass styles on top."
+      }
+    ],
+    "sources": [
+      "https://www.epicweb.dev/tips/creating-glassmorphism-effects-with-tailwind-css",
+      "https://flyonui.com/blog/glassmorphism-with-tailwind-css/",
+      "https://flyonui.com/blog/liquid-glass-effects-in-tailwind-css/",
+      "https://tailwindcss.com/docs/backdrop-blur",
+      "https://tailwindcss.com/docs/backdrop-filter-blur",
+      "https://medium.com/@developer_89726/dark-glassmorphism-the-aesthetic-that-will-define-ui-in-2026-93aa4153088f",
+      "https://uxpilot.ai/blogs/glassmorphism-ui",
+      "https://dev.to/artyhoo/introducing-shadcn-glass-ui-a-glassmorphism-component-library-for-react-4cpl",
+      "https://motion.dev/docs/react-layout-animations",
+      "https://motion.dev/docs/react-layout-group",
+      "https://www.framer.com/motion/gestures/",
+      "https://www.framer.com/motion/stagger/",
+      "https://blog.maximeheckel.com/posts/guide-animations-spark-joy-framer-motion/",
+      "https://blog.maximeheckel.com/posts/framer-motion-layout-animations/",
+      "https://www.indrabuildswebsites.com/blog/framer-motion-animation/how-to-use-layoutid-animatepresence-for-smooth-animation",
+      "https://blog.openreplay.com/creating-blurred-backgrounds-css-backdrop-filter/",
+      "https://www.f22labs.com/blogs/how-css-properties-affect-website-performance/",
+      "https://maxibestof.one/typefaces/clash-display",
+      "https://www.fontshare.com/pairs?q=satoshi",
+      "https://www.fontpair.co/pairings/cabinet-grotesk-satoshi",
+      "https://muz.li/blog/dark-mode-design-systems-a-complete-guide-to-patterns-tokens-and-hierarchy/",
+      "https://devpalettes.com/neon-color-palettes/"
+    ],
+    "pitfalls": [
+      "Blurring a large or scrolling container: backdrop-filter re-rasterizes the region every frame -> severe scroll jank. Keep glass surfaces small & fixed; never wrap the whole page in backdrop-blur.",
+      "Dark glass on flat black looks like nothing. Without blurred color orbs behind it there is nothing to refract — the effect reads as a plain dark card.",
+      "Relying on translucency for text contrast. Text over glass can drop below AA when the backdrop is busy/light. Keep a solid tint floor under text and test 4.5:1.",
+      "Stacking multiple overlapping blurred layers multiplies GPU cost — one blurred surface over one blurred orb layer is fine; five nested blurs melt low-end laptops/phones.",
+      "Forgetting `isolate`/stacking context: backdrop-filter samples everything behind it, so without a proper stacking context your ::before highlight or noise layer blurs the wrong things or the border ring bleeds.",
+      "Animating layout with top/left/width instead of transform. Only Motion's transform-based layout animations hit 60fps; manual width/height animation triggers layout thrash.",
+      "layoutId collisions: layoutId is global — two unrelated cards sharing an id will teleport into each other. Scope repeated rows with <LayoutGroup id=...>.",
+      "Skipping prefers-reduced-motion / prefers-reduced-transparency: drifting aurora + tilt can trigger vestibular discomfort and there's no opaque fallback for users who disable transparency.",
+      "will-change everywhere: putting will-change:transform on many elements permanently promotes layers and exhausts GPU memory. Apply only to the few actively-animating surfaces, ideally added on hover and removed after.",
+      "Heavy shadow + blur + noise on every card in a long grid: compositing cost scales with count. Virtualize long file lists and lighten per-item effects."
+    ],
+    "codeOrConfigPatterns": "/* =========================================================\n   1) DESIGN TOKENS  (globals.css :root)  — dark-neon default\n   ========================================================= */\n:root {                       /* DARK-NEON (default) */\n  /* base backgrounds */\n  --bg-0:  #07070c;           /* app base, near-black w/ blue tint */\n  --bg-1:  #0d0d18;           /* raised panels */\n  --bg-grad: radial-gradient(1200px 800px at 15% -10%, #1b1140 0%, transparent 60%),\n             radial-gradient(1000px 700px at 110% 20%, #04202e 0%, transparent 55%),\n             #07070c;\n  /* glass surface tokens */\n  --glass:        rgba(255,255,255,0.06);   /* surface tint */\n  --glass-strong: rgba(255,255,255,0.10);   /* hover/active */\n  --glass-border: rgba(255,255,255,0.12);   /* hairline edge */\n  --glass-hi:     rgba(255,255,255,0.14);   /* inner top highlight */\n  --glass-shadow: 0 8px 32px rgba(0,0,0,0.45);\n  /* neon accents */\n  --neon-violet: #8b5cf6;     /* hsl(258 90% 66%) primary */\n  --neon-cyan:   #22d3ee;     /* hsl(189 84% 53%) secondary */\n  --neon-magenta:#f0f;        /* hot accent / danger-glow  #ff2fd6 */\n  --accent:      var(--neon-violet);\n  --glow: 0 0 24px rgba(139,92,246,.45), 0 0 60px rgba(34,211,238,.18);\n  /* text */\n  --text-hi: #f4f5ff;  --text-lo: rgba(244,245,255,.64);\n}\n:root[data-theme=\"light\"] {   /* LIGHT GLASS */\n  --bg-0:  #eef1f8;\n  --bg-grad: radial-gradient(1100px 760px at 12% -8%, #dcd4ff 0%, transparent 60%),\n             radial-gradient(900px 680px at 108% 12%, #cdeff7 0%, transparent 55%),\n             #eef1f8;\n  --glass:        rgba(255,255,255,0.55);\n  --glass-strong: rgba(255,255,255,0.72);\n  --glass-border: rgba(255,255,255,0.65);\n  --glass-hi:     rgba(255,255,255,0.90);\n  --glass-shadow: 0 8px 30px rgba(31,38,90,0.12);\n  --neon-violet:#7c3aed; --neon-cyan:#0891b2; --neon-magenta:#db2777;\n  --accent: var(--neon-violet);\n  --glow: 0 0 20px rgba(124,58,237,.25);\n  --text-hi:#0e1020; --text-lo: rgba(14,16,32,.62);\n}\n\n/* =========================================================\n   2) THE GLASS PANEL  (component class or @apply)\n   ========================================================= */\n.glass {\n  position: relative; isolation: isolate;         /* own stacking ctx */\n  border-radius: 1rem;\n  background: var(--glass);\n  -webkit-backdrop-filter: blur(22px) saturate(1.6);\n  backdrop-filter: blur(22px) saturate(1.6);       /* SATURATE = vivid refraction */\n  border: 1px solid var(--glass-border);\n  box-shadow: var(--glass-shadow),\n              inset 0 1px 0 var(--glass-hi);        /* inner top highlight */\n}\n.glass::before {                                    /* top-edge light catch */\n  content:\"\"; position:absolute; inset:0; border-radius:inherit; pointer-events:none;\n  background: linear-gradient(180deg, rgba(255,255,255,.14), transparent 42%);\n  -webkit-mask: linear-gradient(#000,transparent 60%);\n}\n/* Tailwind equivalent for one card:\n   className=\"relative isolate rounded-2xl bg-white/6 backdrop-blur-xl\n              backdrop-saturate-150 border border-white/12\n              shadow-[0_8px_32px_rgba(0,0,0,.45)] ring-1 ring-inset ring-white/10\n              transform-gpu will-change-[transform]\" */\n\n/* =========================================================\n   3) AURORA BACKGROUND (put BEHIND everything; z-index:-1)\n   ========================================================= */\n.aurora { position:fixed; inset:-20%; z-index:-1; filter:blur(60px); opacity:.9; }\n.aurora .orb{ position:absolute; border-radius:50%; mix-blend-mode:screen; }\n.orb.v{ width:46vw;height:46vw; background:var(--neon-violet);  top:-8%; left:6%;\n        animation:drift 22s ease-in-out infinite; }\n.orb.c{ width:40vw;height:40vw; background:var(--neon-cyan);    top:24%; right:2%;\n        animation:drift 28s ease-in-out infinite reverse; }\n.orb.m{ width:32vw;height:32vw; background:var(--neon-magenta); bottom:-6%; left:34%;\n        animation:drift 25s ease-in-out infinite; }\n@keyframes drift{ 0%,100%{transform:translate3d(0,0,0) scale(1)}\n                  50%{transform:translate3d(4%, -6%,0) scale(1.12)} }\n\n/* =========================================================\n   4) NOISE / GRAIN overlay (CSP-safe inline SVG data-URI)\n   ========================================================= */\n.noise{ position:fixed; inset:0; z-index:50; pointer-events:none; opacity:.045;\n  mix-blend-mode:overlay;\n  background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\"); }\n\n/* =========================================================\n   5) TYPOGRAPHY\n   ========================================================= */\n:root{ --font-display:\"Clash Display\",\"Cabinet Grotesk\",sans-serif;\n       --font-ui:\"Satoshi\",\"Inter\",system-ui,sans-serif; }\n.h-hero{ font-family:var(--font-display); font-weight:600;\n         font-size:clamp(2.6rem,6vw,5rem); letter-spacing:-.03em; line-height:.98; }\nbody{ font-family:var(--font-ui); font-feature-settings:\"ss01\",\"cv01\"; color:var(--text-hi); }\n.tabular{ font-variant-numeric: tabular-nums; }   /* file sizes / counts */\n\n/* =========================================================\n   6) PERFORMANCE + ACCESSIBILITY guards\n   ========================================================= */\n@media (prefers-reduced-transparency: reduce){\n  .glass{ background:var(--bg-1); backdrop-filter:none; -webkit-backdrop-filter:none; }\n  .aurora,.noise{ display:none; }\n}\n@media (prefers-reduced-motion: reduce){\n  .orb{ animation:none !important; }\n  *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }\n}\n\n/* ============================================================\n   ================  FRAMER MOTION / motion RECIPES  ==========\n   ============================================================ */\nimport { motion, AnimatePresence, LayoutGroup,\n         useMotionValue, useSpring, useTransform } from \"motion/react\";\n\n/* --- A) SHARED-ELEMENT: file card -> full preview (hero interaction) --- */\n// list item:\n<motion.button layoutId={`file-${f.id}`} onClick={() => setOpen(f)}\n  className=\"glass p-3\" whileHover={{ y:-4 }} transition={spring}>\n  <motion.img layoutId={`thumb-${f.id}`} src={f.thumb}/>\n  <motion.h3 layoutId={`name-${f.id}`}>{f.name}</motion.h3>\n</motion.button>\n// overlay:\n<AnimatePresence>\n {open && (\n  <motion.div className=\"fixed inset-0 grid place-items-center\"\n     initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>\n    <motion.div layoutId={`file-${open.id}`} className=\"glass w-[70vw] p-6\">\n      <motion.img layoutId={`thumb-${open.id}`} src={open.full}/>\n      <motion.h3 layoutId={`name-${open.id}`}>{open.name}</motion.h3>\n    </motion.div>\n </motion.div>)}\n</AnimatePresence>\nconst spring = { type:\"spring\", stiffness:400, damping:34, mass:.8 };\n\n/* --- B) ROUTE / PAGE TRANSITION (wrap page in _app / template.tsx) --- */\n<AnimatePresence mode=\"wait\">\n  <motion.main key={route}\n    initial={{opacity:0, y:16, filter:\"blur(8px)\"}}\n    animate={{opacity:1, y:0, filter:\"blur(0px)\"}}\n    exit={{opacity:0, y:-12, filter:\"blur(8px)\"}}\n    transition={{duration:.4, ease:[0.22,1,0.36,1]}}/>\n</AnimatePresence>\n\n/* --- C) STAGGERED LIST REVEAL --- */\nconst listV = { show:{ transition:{ staggerChildren:.06, delayChildren:.1 } } };\nconst itemV = { hidden:{opacity:0,y:20,filter:\"blur(6px)\"},\n                show:{opacity:1,y:0,filter:\"blur(0px)\",\n                      transition:{type:\"spring\",stiffness:300,damping:26}} };\n<motion.ul variants={listV} initial=\"hidden\" animate=\"show\">\n  {files.map(f=> <motion.li key={f.id} variants={itemV} className=\"glass\"/>) }\n</motion.ul>\n\n/* --- D) MAGNETIC + 3D TILT HOVER CARD (spring-smoothed) --- */\nfunction TiltCard({children}){\n  const x=useMotionValue(0), y=useMotionValue(0);\n  const rx=useSpring(useTransform(y,[-.5,.5],[8,-8]),{stiffness:300,damping:20});\n  const ry=useSpring(useTransform(x,[-.5,.5],[-8,8]),{stiffness:300,damping:20});\n  return (\n   <motion.div className=\"glass p-6\" style={{rotateX:rx, rotateY:ry, transformPerspective:900}}\n     onPointerMove={e=>{const r=e.currentTarget.getBoundingClientRect();\n       x.set((e.clientX-r.left)/r.width-.5); y.set((e.clientY-r.top)/r.height-.5);}}\n     onPointerLeave={()=>{x.set(0);y.set(0);}}\n     whileHover={{ boxShadow:\"var(--glow)\" }}>\n     {children}\n   </motion.div>);\n}\n\n/* --- E) SCROLL REVEAL (whileInView, fires once) --- */\n<motion.section\n  initial={{opacity:0, y:40}} whileInView={{opacity:1, y:0}}\n  viewport={{ once:true, amount:.3 }}\n  transition={{duration:.6, ease:[0.22,1,0.36,1]}}/>\n\n/* --- F) REDUCED MOTION in JS: gate decorative motion --- */\nimport { useReducedMotion } from \"motion/react\";\nconst reduce = useReducedMotion();           // skip tilt/aurora when true\n"
+  },
+  {
+    "dimension": "High-Definition Visual Asset Sourcing for a Self-Contained (Docker) Premium Web App UI (2025-2026)",
+    "summary": "For a premium glass/neon web UI that ships fully self-contained in a Docker image with zero runtime external calls, the winning strategy is: pull curated high-res photography from Unsplash/Pexels at BUILD time (never hotlink), generate abstract aurora/mesh backgrounds as pure CSS or baked SVG/PNG (no runtime dependency, infinitely on-brand), standardize on ONE React icon system (Lucide is the recommendation for a clean UI-first product; Phosphor if you need multiple weights for hierarchy), self-host premium open fonts via Fontsource NPM packages (bundled at build, offline-safe), and layer in CC0 3D icon/shape packs (3dicons.co, Shapefest, opensource3dassets) for the glass/neon hero accents. Every asset must be copied into the image so the container serves them from its own filesystem/CDN-less origin. Two licensing traps dominate: (1) the Unsplash *API* mandates photographer attribution + hotlinking behavior even though the Unsplash *license* does not — so download-at-build sidesteps the API terms entirely; (2) Fontshare's ITF Free Font License permits self-hosting/webfont embedding but forbids *redistributing the font files as fonts* — fine inside a compiled app bundle, risky if your Docker image is a public font-serving artifact. Reserve custom AI (imagegen) assets for brand-specific hero art, empty-states, and 3D motifs that stock cannot supply on-brand; use stock for realistic photography and generative CSS for backgrounds.",
+    "keyRecommendations": [
+      "Download imagery at BUILD time, never hotlink at runtime. Use the Unsplash/Pexels APIs (or manual download) during the Docker build to fetch specific hero/background photos, optimize them (sharp/AVIF/WebP, multiple sizes), and COPY them into the image. This makes the app offline-safe AND avoids the Unsplash API's mandatory attribution+hotlinking rules, which only bind live API integrations.",
+      "Prefer generated CSS/SVG for backgrounds over stock photos. Aurora/mesh gradients as pure CSS (or a baked SVG/PNG rendered once) are resolution-independent, weigh a few KB, need no license/attribution, and are trivially themeable to your neon palette. Use SyntaxSnap, FWD Tools, CSS Hero Mesher, or auroragradient.com to author, then paste the raw CSS into your codebase — no runtime tool call.",
+      "Standardize on a SINGLE icon system: Lucide (MIT, ~1600+ clean 24px stroke icons, first-class tree-shaken React package `lucide-react`, works with RSC/Next). Choose Phosphor instead only if your design language needs multiple weights (Thin→Fill+Duotone) for visual hierarchy; Tabler if it's a dashboard-heavy admin product. Do not mix libraries — it fractures the visual language and bloats the bundle.",
+      "Self-host fonts with Fontsource NPM packages, not CDN links. `@fontsource-variable/*` packages bundle the woff2 + CSS into your build so fonts resolve from the container with no fonts.googleapis.com/gstatic.com calls. Pin versions for reproducible builds. For Next.js, `next/font/local` pointing at bundled woff2 gives automatic self-hosting + zero layout shift.",
+      "Recommended type pairing for glass/neon premium: a high-contrast display face (Clash Display or Cabinet Grotesk from Fontshare, OR OFL alternatives like Space Grotesk / Unbounded / Bricolage Grotesque) for heroes, paired with a clean geometric UI sans (Satoshi or General Sans from Fontshare, OR OFL Inter / Geist / Plus Jakarta Sans). Prefer an OFL font if you want zero redistribution ambiguity in a shippable Docker artifact.",
+      "Use CC0 3D asset packs for the glass/neon accents: 3dicons.co (CC0, 1440+ Blender-rendered icons in Color/Clay/Premium/Gradient styles, PNG+GLB+Figma+Blend), Shapefest (10,000+ high-res 3D shape PNGs), and opensource3dassets.com / ToxSam registry (991+ CC0 GLB, includes neon/vaporwave environments) if you render real 3D via Three.js/Spline.",
+      "Bake EVERYTHING into the image and serve from the app's own origin. Copy fonts, icons (as bundled SVG components, not runtime fetches), optimized images, 3D GLBs, and generated background CSS into the build. Verify zero runtime egress: audit the built bundle/network tab so no request hits an external host. Add a strict CSP that blocks external image/font/script origins to enforce it.",
+      "Reserve AI-generated (imagegen) assets for: brand-specific hero illustration, on-brand empty-states/404/onboarding art, and custom glass/neon 3D motifs that no CC0 pack matches. Use stock photography for realistic/human/product photos, and generative CSS for backgrounds. AI is warranted when brand cohesion or a unique motif matters more than photoreal accuracy; stock/CSS win on speed, cost, and license certainty."
+    ],
+    "libraries": [
+      {
+        "name": "Unsplash",
+        "purpose": "Free high-resolution photography for hero/background visuals",
+        "notes": "Unsplash License: no attribution required to USE a downloaded photo (website, hero, billboard). BUT the Unsplash API Terms separately REQUIRE crediting photographer+Unsplash with clickable links for any live API integration, and discourage caching/replicating. Strategy: use the API (or manual download) only at build time to fetch and bake specific images, which keeps you under the license, not the API terms. https://unsplash.com/license , https://unsplash.com/api-terms"
+      },
+      {
+        "name": "Pexels",
+        "purpose": "Free high-res photography AND video, easiest licensing",
+        "notes": "Free API, NO attribution required (credit requested when possible). Simpler all-purpose choice than Unsplash and the only one of the two with free stock video. Same build-time-download strategy applies for self-containment. https://www.pexels.com/api/"
+      },
+      {
+        "name": "Lucide (lucide-react)",
+        "purpose": "Primary React icon system (RECOMMENDED)",
+        "notes": "MIT license, ~1600+ clean stroke icons on a 24px grid, tree-shakable, RSC/Next-ready. Icons compile into your bundle as SVG components = zero runtime fetch, fully self-contained. Fork of Feather, actively maintained. The default choice for a clean UI-first premium product."
+      },
+      {
+        "name": "Phosphor Icons",
+        "purpose": "Alt icon system when weight variety matters",
+        "notes": "MIT, 9000+ icons across 6 weights (Thin, Light, Regular, Bold, Fill, Duotone). Best when you want icon weight to carry visual hierarchy. `@phosphor-icons/react`. Heavier surface than Lucide; pick one, don't mix."
+      },
+      {
+        "name": "Tabler Icons",
+        "purpose": "Alt icon system for dashboard/admin-heavy UIs",
+        "notes": "MIT, 5900+ icons on 24px grid / 2px stroke, tree-shakable React package. Excels for admin panels where consistency across many small icons matters."
+      },
+      {
+        "name": "Fontsource",
+        "purpose": "Self-hosting open-source fonts via NPM (offline-safe)",
+        "notes": "Fonts as individual NPM packages (`@fontsource/*`, `@fontsource-variable/*` for variable fonts). Bundles woff2+CSS into your build = works offline, no Google CDN calls, version-locked for reproducible Docker builds. Most families are SIL OFL 1.1. https://github.com/fontsource/fontsource"
+      },
+      {
+        "name": "Fontshare (Indian Type Foundry)",
+        "purpose": "Premium free display + UI fonts (Satoshi, Clash Display, General Sans, Cabinet Grotesk)",
+        "notes": "Free for personal+commercial under the ITF Free Font License. PERMITS self-hosting/webfont embedding, but PROHIBITS redistributing the font files as fonts or under a new name. Safe bundled inside a compiled app; be cautious if your Docker image is a public artifact that effectively redistributes the raw font files. Includes a webfont generator + variable versions. https://www.fontshare.com/licenses/sil-ofl and font pages e.g. https://www.fontshare.com/fonts/clash-display"
+      },
+      {
+        "name": "Google Fonts (OFL families)",
+        "purpose": "License-clean OFL display+UI fonts (Space Grotesk, Unbounded, Bricolage Grotesque, Inter, Plus Jakarta Sans)",
+        "notes": "SIL OFL 1.1 = maximum redistribution freedom (bundle/modify/embed freely). Download woff2 and self-host (via Fontsource or next/font/local) rather than linking the CDN. Best choice when you want zero redistribution ambiguity in a shippable image. https://fonts.google.com/knowledge/using_type/self_hosting_web_fonts"
+      },
+      {
+        "name": "3dicons.co (realvjy / Vijay Verma)",
+        "purpose": "CC0 3D icon pack for glass/neon hero accents",
+        "notes": "CC0 (no attribution), 1440+ Blender-rendered icons, 120 unique in 3 camera angles x 4 styles (Color, Clay, Premium, Gradient). Available as PNG + GLB + Figma + Blend. Perfect drop-in glossy/glass accents. https://3dicons.co/ , https://github.com/realvjy/3dicons"
+      },
+      {
+        "name": "Shapefest",
+        "purpose": "Massive CC0-style 3D shape image pack",
+        "notes": "10,000+ high-resolution PNGs of 3D shapes (glossy/glass/clay). Great for abstract hero compositions and floating-object aesthetics without running a 3D engine. https://www.shapefest.com/"
+      },
+      {
+        "name": "opensource3dassets.com / ToxSam registry",
+        "purpose": "CC0 GLB models for real Three.js/Spline 3D scenes",
+        "notes": "991+ CC0 GLB models incl. neon-street/vaporwave environments, JSON-indexed. Use when the UI renders actual interactive 3D rather than baked PNGs. https://github.com/toxsam/open-source-3D-assets , https://www.opensource3dassets.com"
+      },
+      {
+        "name": "Spline",
+        "purpose": "Author custom glass/neon interactive 3D scenes",
+        "notes": "Design 3D scenes and export GLB/GLTF (or self-hostable runtime) to bake into the image. Good middle path between static Shapefest PNGs and hand-built Three.js when you need a signature branded 3D hero. Export assets and host them yourself for the no-external-calls requirement."
+      },
+      {
+        "name": "Aurora/mesh CSS generators (SyntaxSnap, FWD Tools, CSS Hero Mesher, auroragradient.com)",
+        "purpose": "Author abstract gradient/aurora/mesh backgrounds as pure CSS/SVG",
+        "notes": "Generate raw CSS (or SVG/PNG) at design time and paste into your codebase — no runtime tool dependency, resolution-independent, few KB, themeable to your neon palette. Combine a mesh-gradient layer + a glassmorphism card for the 'premium SaaS / Apple Liquid Glass' look. https://syntaxsnap.com/tools/mesh-gradient , https://fwdtools.com/mesh-gradient-generator/ , https://csshero.org/mesher/ , https://auroragradient.com/"
+      },
+      {
+        "name": "sharp / vite-imagetools / Squoosh",
+        "purpose": "Build-time image optimization for baked photos",
+        "notes": "Convert downloaded stock photos to AVIF/WebP at multiple responsive sizes during the Docker build so the image ships small, sharp, self-contained assets. Pairs with the build-time download strategy."
+      }
+    ],
+    "codeOrConfigPatterns": "Build-time image bake (multi-stage Dockerfile):\n```dockerfile\n# --- build stage: fetch + optimize assets, never at runtime ---\nFROM node:22 AS build\nWORKDIR /app\nCOPY package*.json ./\nRUN npm ci                       # includes @fontsource-variable/*, lucide-react (fonts+icons bundled)\nCOPY scripts/fetch-assets.mjs ./scripts/\n# fetch specific hero/bg photos from Unsplash/Pexels API into ./public/img, then optimize\nRUN node scripts/fetch-assets.mjs   # writes optimized AVIF/WebP; runs ONCE at build\nCOPY . .\nRUN npm run build                # bundles icons as SVG components + self-hosted woff2\n# --- runtime: serve baked assets only, zero egress ---\nFROM nginx:alpine\nCOPY --from=build /app/dist /usr/share/nginx/html\n```\n\nSelf-host variable font (offline-safe, no Google CDN):\n```ts\n// import once; woff2 + CSS come from node_modules, bundled into build\nimport '@fontsource-variable/space-grotesk';   // display\nimport '@fontsource-variable/inter';           // UI\n// or Next.js local self-hosting with zero layout shift:\n// const display = localFont({ src: './fonts/ClashDisplay-Variable.woff2', variable: '--font-display' })\n```\n\nTree-shaken icons compile into the bundle (no runtime fetch):\n```tsx\nimport { Sparkles, ShieldCheck } from 'lucide-react';\n```\n\nPure-CSS aurora/mesh + glass (paste generated values, no runtime tool):\n```css\n.hero-bg{\n  background:\n    radial-gradient(60% 80% at 20% 15%, #7c3aed55, transparent 60%),\n    radial-gradient(50% 60% at 85% 25%, #06b6d455, transparent 60%),\n    radial-gradient(70% 70% at 60% 90%, #ec489955, transparent 60%),\n    #0b0b12;\n}\n.glass-card{\n  background: rgba(255,255,255,.06);\n  backdrop-filter: blur(16px) saturate(140%);\n  border: 1px solid rgba(255,255,255,.12);\n  border-radius: 20px;\n}\n```\n\nEnforce no external calls with a strict CSP (blocks accidental hotlinks):\n```\nContent-Security-Policy: default-src 'self'; img-src 'self' data:; font-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'\n```",
+    "pitfalls": [
+      "Unsplash API attribution trap: the Unsplash LICENSE needs no credit, but the Unsplash API TERMS require photographer+Unsplash attribution with clickable links and discourage caching. Download images at build time (outside a live API integration) to stay under the permissive license instead of the API terms.",
+      "Hotlinking breaks the self-contained requirement AND may violate API terms (Unsplash technically wants dynamic hotlinks). Always copy the actual bytes into the image; never reference source.unsplash.com or images.pexels.com URLs at runtime.",
+      "Fontshare/ITF Free Font License is NOT OpenType/OFL: it permits self-hosting and webfont embedding but forbids redistributing the raw font files as fonts or renaming them. Bundling inside a compiled app is fine; a public Docker image that effectively hands out the woff2 as downloadable font files is a grey area. Use OFL fonts (Google Fonts) if you want zero ambiguity.",
+      "Google Fonts / any CDN font link is a hidden runtime external call and a GDPR concern in the EU. Self-host via Fontsource or next/font/local — never <link> to fonts.googleapis.com.",
+      "Mixing icon libraries (Lucide + Phosphor + Tabler) fractures the visual language (different stroke weights/grids) and multiplies bundle weight. Pick exactly one.",
+      "Shipping full-resolution stock photos unoptimized bloats the image and hurts load. Convert to AVIF/WebP at responsive sizes during build (sharp/Squoosh).",
+      "Free3D/TurboSquid/CGTrader 'free' 3D models often carry per-model licenses that are NOT CC0 and may bar redistribution/commercial use. Stick to verified CC0 sources (3dicons.co, Shapefest, opensource3dassets/ToxSam) and check each model's license before baking it in.",
+      "backdrop-filter (glassmorphism) has real performance cost and inconsistent support on some embedded webviews; test on target devices and provide a solid-color fallback.",
+      "Over-using AI-generated hero imagery can look generic/off-brand and may raise provenance/licensing questions; reserve it for genuinely bespoke motifs and keep prompts/outputs version-controlled with the rest of your assets.",
+      "Not enforcing a CSP means a future dev can silently reintroduce an external image/font/script and break the offline guarantee. Add a strict self-only CSP as a guardrail."
+    ],
+    "sources": [
+      "https://unsplash.com/license",
+      "https://unsplash.com/api-terms",
+      "https://help.unsplash.com/en/articles/2511315-guideline-attribution",
+      "https://www.pexels.com/api/",
+      "https://blog.laozhang.ai/en/posts/free-image-api",
+      "https://www.licenseorg.com/blog/unsplash-license-attribution-required",
+      "https://lucide.dev/",
+      "https://phosphoricons.com/",
+      "https://tabler.io/icons",
+      "https://www.shadcndesign.com/blog/5-best-icon-libraries-for-shadcn-ui",
+      "https://mighil.com/best-react-icon-libraries",
+      "https://github.com/fontsource/fontsource",
+      "https://fonts.google.com/knowledge/using_type/self_hosting_web_fonts",
+      "https://www.fontshare.com/licenses/sil-ofl",
+      "https://www.fontshare.com/fonts/clash-display",
+      "https://www.fontshare.com/fonts/satoshi",
+      "https://stefan-poeltl.medium.com/self-hosted-open-source-fonts-and-icons-via-npm-with-fontsource-3e4d41ee342d",
+      "https://dev.to/danwalsh/self-host-google-fonts-in-your-next-react-project-with-fontsource-1n07",
+      "https://syntaxsnap.com/tools/mesh-gradient",
+      "https://fwdtools.com/mesh-gradient-generator/",
+      "https://csshero.org/mesher/",
+      "https://auroragradient.com/",
+      "https://www.superdesign.dev/styles/glassmorphism",
+      "https://3dicons.co/",
+      "https://github.com/realvjy/3dicons",
+      "https://www.smashingmagazine.com/2022/05/3dicons-open-source-library-case-study-download/",
+      "https://www.shapefest.com/",
+      "https://github.com/toxsam/open-source-3D-assets",
+      "https://www.opensource3dassets.com/en",
+      "https://spline.design/",
+      "https://www.toools.design/free-open-source-illustrations"
+    ]
+  },
+  {
+    "dimension": "Docker & Deployment (self-contained one-command `docker compose up` stack for Next.js 15 standalone + PostgreSQL + Prisma, with auto-created admin)",
+    "summary": "A production-grade, one-command stack for Next.js 15 (App Router, output:'standalone') + PostgreSQL + Prisma is built from four pieces: (1) a multi-stage Dockerfile on node:22-alpine that produces a ~150-250MB image by copying only .next/standalone, .next/static and public, running as the non-root `node`/`nextjs` user, with the Prisma CLI + migrations + schema present at runtime; (2) a docker-compose.yml wiring app + postgres with a pg_isready healthcheck, depends_on: {postgres: condition: service_healthy}, an app healthcheck hitting a /api/health route, restart: unless-stopped, named volumes for pgdata and uploads, and an env_file; (3) an idempotent entrypoint.sh that runs `prisma migrate deploy` then a seed, then execs the server via tini for signal handling; (4) an admin seed that upserts a user only if no admin exists, reading ADMIN_EMAIL/ADMIN_PASSWORD (hashed with bcrypt/argon2). Uploads persist on a named volume whose ownership is fixed at build (chown to UID 1001) or repaired at runtime by a root entrypoint that drops to the app user via gosu/su-exec. A Caddy sidecar gives automatic TLS in ~3 lines and needs no body-size limit; nginx/Traefik alternatives require explicitly raising the 1MB default upload cap (client_max_body_size / respondingTimeouts). Critical alpine gotcha: do NOT install glibc/libc6-compat for Prisma — it downloads musl engines; ensure openssl is present and set the correct binaryTargets. Secrets stay out of the image: pass DATABASE_URL and ADMIN_* only via env_file/.env at runtime, ship a committed .env.example, and gitignore .env.",
+    "keyRecommendations": [
+      "Set output: 'standalone' in next.config so the build emits a self-contained server.js; in the runner stage copy ONLY .next/standalone (chown to the app user), then overlay .next/static and public — this is the 70-80% image-size reduction and avoids shipping node_modules.",
+      "Use a 3-stage build (deps -> builder -> runner) on node:22-alpine, run `npm ci` in deps with cache, run `prisma generate` before `next build`, and in the runner create/use a non-root user (uid/gid 1001 or the built-in `node` user) that owns the app and upload dirs.",
+      "Prisma on Alpine: DO NOT install glibc/libc6-compat (breaks Prisma — it ships musl engines); DO ensure `openssl` is installed and set binaryTargets = ['native','linux-musl-openssl-3.0.x'] in schema.prisma so the query engine matches at runtime.",
+      "Keep the Prisma CLI, ./prisma (schema + migrations) and the seed script in the runtime image so `prisma migrate deploy` and the seed can run at container start; pin the prisma CLI version to @prisma/client to avoid drift, and prefer a pinned local binary over runtime `npx`.",
+      "Run migrations at startup from an idempotent entrypoint, NOT in the Dockerfile: entrypoint does `prisma migrate deploy` (safe to re-run, applies only pending migrations) then the seed, then `exec` the server so PID 1 signal handling works — wrap with tini/dumb-init for clean SIGTERM shutdown.",
+      "In compose, gate the app on DB readiness with a postgres healthcheck (`pg_isready -U $POSTGRES_USER`) plus `depends_on: postgres: {condition: service_healthy}`; add an app healthcheck curling a lightweight /api/health route; set `restart: unless-stopped` on both services.",
+      "Persist state on two named volumes: `pgdata` -> /var/lib/postgresql/data and `uploads` -> your app's upload dir (e.g. /app/uploads or /app/public/uploads). Named volumes (unlike bind mounts) initialize with the mount-point's ownership, so pre-chown the dir in the Dockerfile to the app UID, or repair at runtime.",
+      "For upload-dir permissions with a non-root user, use the root-entrypoint pattern: ENTRYPOINT runs as root, `chown -R nextjs:nodejs /app/uploads`, then drop privileges with `gosu`/`su-exec nextjs` to exec the app; this makes the container self-sufficient regardless of the volume's initial ownership.",
+      "Seed the initial admin conditionally: in seed.ts, `count` admins and only `upsert`/create when zero exist, using ADMIN_EMAIL + a hash of ADMIN_PASSWORD (bcrypt/argon2); this is idempotent across restarts and never overwrites a changed password.",
+      "Manage secrets via env only: never bake DATABASE_URL/ADMIN_PASSWORD into the image or ARG (build args leak into history). Use compose `env_file: .env`, commit a `.env.example` with placeholder values, gitignore `.env`, and for real prod prefer Docker secrets or an external secret store.",
+      "Add a reverse proxy for TLS + large uploads: Caddy is the simplest (automatic HTTPS, no default body-size limit — a ~3-line Caddyfile `reverse_proxy app:3000`). If using nginx raise `client_max_body_size` (default 1MB -> e.g. 100M) or you get HTTP 413; on Traefik there's no hard body limit but tune timeouts. Also set `output` proxy trust and Next.js will read X-Forwarded headers.",
+      "Make the whole thing one command: `docker compose up -d --build` builds the app image, starts postgres, waits for health, runs migrate+seed via entrypoint, auto-creates the admin, and serves — no manual steps."
+    ],
+    "libraries": [
+      {
+        "name": "node:22-alpine (or node:20-alpine)",
+        "purpose": "Minimal base image for all build stages; musl-based, small footprint",
+        "notes": "Alpine 3.20+. Do NOT add libc6-compat/glibc for Prisma. Ensure openssl present."
+      },
+      {
+        "name": "Next.js 15 output:'standalone'",
+        "purpose": "Emits self-contained .next/standalone/server.js with only required node_modules",
+        "notes": "Copy .next/standalone + .next/static + public separately in runner stage."
+      },
+      {
+        "name": "Prisma / @prisma/client",
+        "purpose": "ORM; `prisma migrate deploy` applies pending migrations idempotently, `prisma db seed` runs seed",
+        "notes": "Pin CLI == client version; set binaryTargets linux-musl-openssl-3.0.x for alpine."
+      },
+      {
+        "name": "postgres:16-alpine",
+        "purpose": "Database service in compose with pgdata named volume and pg_isready healthcheck",
+        "notes": "Use POSTGRES_USER/PASSWORD/DB env; healthcheck `pg_isready -U $POSTGRES_USER`."
+      },
+      {
+        "name": "tini or dumb-init",
+        "purpose": "Lightweight init as PID 1 for correct SIGTERM/zombie reaping when running node server.js",
+        "notes": "`exec tini -- node server.js` or use compose `init: true`."
+      },
+      {
+        "name": "gosu or su-exec",
+        "purpose": "Drop from root to non-root user in entrypoint after chowning the uploads volume",
+        "notes": "su-exec is the tiny alpine-native equivalent of gosu."
+      },
+      {
+        "name": "bcryptjs or argon2",
+        "purpose": "Hash ADMIN_PASSWORD before storing the seeded admin user",
+        "notes": "argon2 needs build tooling; bcryptjs is pure-JS and simplest in alpine."
+      },
+      {
+        "name": "Caddy (caddy:alpine)",
+        "purpose": "Optional reverse proxy: automatic HTTPS/TLS, no default upload size limit",
+        "notes": "3-line Caddyfile; alternatives nginx (raise client_max_body_size) or Traefik (labels)."
+      }
+    ],
+    "codeOrConfigPatterns": "### next.config.mjs\n```js\nconst nextConfig = { output: 'standalone' };\nexport default nextConfig;\n```\n\n### prisma/schema.prisma (generator block)\n```prisma\ngenerator client {\n  provider      = \"prisma-client-js\"\n  binaryTargets = [\"native\", \"linux-musl-openssl-3.0.x\"]\n}\n```\npackage.json: `\"prisma\": { \"seed\": \"node prisma/seed.js\" }`\n\n### Dockerfile (multi-stage, standalone, non-root)\n```dockerfile\n# ---- deps ----\nFROM node:22-alpine AS deps\nWORKDIR /app\nCOPY package.json package-lock.json ./\nCOPY prisma ./prisma\nRUN npm ci\n\n# ---- builder ----\nFROM node:22-alpine AS builder\nWORKDIR /app\nCOPY --from=deps /app/node_modules ./node_modules\nCOPY . .\nRUN npx prisma generate && npm run build\n\n# ---- runner ----\nFROM node:22-alpine AS runner\nWORKDIR /app\nENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0\nRUN apk add --no-cache openssl tini su-exec\n# built-in \"node\" user is uid 1000; create dedicated 1001 group/user\nRUN addgroup -g 1001 nodejs && adduser -u 1001 -G nodejs -S nextjs\n\n# standalone output (server.js + trimmed node_modules)\nCOPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./\nCOPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static\nCOPY --from=builder --chown=nextjs:nodejs /app/public ./public\n# prisma runtime bits for migrate deploy + seed at startup\nCOPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma\nCOPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma\nCOPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma\nCOPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma\nCOPY --from=builder --chown=nextjs:nodejs /app/node_modules/.bin/prisma ./node_modules/.bin/prisma\n\nRUN mkdir -p /app/uploads && chown -R nextjs:nodejs /app/uploads\nCOPY docker-entrypoint.sh /usr/local/bin/\nRUN chmod +x /usr/local/bin/docker-entrypoint.sh\n\nEXPOSE 3000\n# run entrypoint as ROOT so it can chown the uploads volume, then drop privs\nENTRYPOINT [\"/usr/local/bin/docker-entrypoint.sh\"]\nCMD [\"node\", \"server.js\"]\n```\n\n### docker-entrypoint.sh (idempotent: migrate -> seed -> drop privs -> serve)\n```sh\n#!/bin/sh\nset -e\n# fix ownership of the mounted named volume (runs as root)\nchown -R nextjs:nodejs /app/uploads || true\n# migrate + seed as the app user\nsu-exec nextjs ./node_modules/.bin/prisma migrate deploy\nsu-exec nextjs ./node_modules/.bin/prisma db seed || true   # seed is idempotent\n# hand off to the app as non-root, tini as PID 1\nexec su-exec nextjs tini -- \"$@\"\n```\n\n### prisma/seed.js (admin only if none exists)\n```js\nconst { PrismaClient } = require('@prisma/client');\nconst bcrypt = require('bcryptjs');\nconst prisma = new PrismaClient();\nasync function main() {\n  const admins = await prisma.user.count({ where: { role: 'ADMIN' } });\n  if (admins > 0) { console.log('Admin exists, skip'); return; }\n  const email = process.env.ADMIN_EMAIL, pw = process.env.ADMIN_PASSWORD;\n  if (!email || !pw) { console.log('ADMIN_* not set, skip'); return; }\n  await prisma.user.upsert({\n    where: { email },\n    update: {},\n    create: { email, role: 'ADMIN', passwordHash: await bcrypt.hash(pw, 12) },\n  });\n  console.log('Seeded admin', email);\n}\nmain().finally(() => prisma.$disconnect());\n```\n\n### app/api/health/route.ts (for compose healthcheck)\n```ts\nexport const dynamic = 'force-dynamic';\nexport async function GET() { return new Response('ok'); }\n```\n\n### docker-compose.yml\n```yaml\nservices:\n  postgres:\n    image: postgres:16-alpine\n    restart: unless-stopped\n    environment:\n      POSTGRES_USER: ${POSTGRES_USER}\n      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}\n      POSTGRES_DB: ${POSTGRES_DB}\n    volumes:\n      - pgdata:/var/lib/postgresql/data\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}\"]\n      interval: 5s\n      timeout: 5s\n      retries: 10\n\n  app:\n    build: .\n    restart: unless-stopped\n    env_file: .env\n    environment:\n      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public\n    depends_on:\n      postgres:\n        condition: service_healthy\n    volumes:\n      - uploads:/app/uploads\n    ports:\n      - \"3000:3000\"\n    healthcheck:\n      test: [\"CMD\", \"wget\", \"-qO-\", \"http://localhost:3000/api/health\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n\n  # optional TLS + large uploads\n  caddy:\n    image: caddy:2-alpine\n    restart: unless-stopped\n    depends_on: [app]\n    ports: [\"80:80\", \"443:443\"]\n    volumes:\n      - ./Caddyfile:/etc/caddy/Caddyfile\n      - caddy_data:/data\n      - caddy_config:/config\n\nvolumes:\n  pgdata:\n  uploads:\n  caddy_data:\n  caddy_config:\n```\n\n### Caddyfile (auto-HTTPS, no upload-size limit by default)\n```\napp.example.com {\n    reverse_proxy app:3000\n    request_body { max_size 100MB }   # optional explicit cap\n}\n```\n\n### nginx alternative (must raise default 1MB cap)\n```\nserver { listen 443 ssl;\n  client_max_body_size 100M;\n  location / { proxy_pass http://app:3000;\n    proxy_set_header Host $host;\n    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n    proxy_set_header X-Forwarded-Proto $scheme; } }\n```\n\n### .env.example (commit this; gitignore real .env)\n```\n# --- Postgres ---\nPOSTGRES_USER=appuser\nPOSTGRES_PASSWORD=change-me-strong\nPOSTGRES_DB=appdb\n# --- App (DATABASE_URL is composed in compose, or set explicitly) ---\nDATABASE_URL=postgresql://appuser:change-me-strong@postgres:5432/appdb?schema=public\n# --- Initial admin (seeded only if no admin exists) ---\nADMIN_EMAIL=admin@example.com\nADMIN_PASSWORD=change-me-too\n# --- Next.js ---\nNODE_ENV=production\n```\n\n### One command\n```\ndocker compose up -d --build\n```",
+    "pitfalls": [
+      "Installing libc6-compat/glibc on alpine to 'help' Prisma actually BREAKS it — Prisma ships musl engines on alpine. Only add `openssl`; if you see engine errors set binaryTargets to linux-musl-openssl-3.0.x (or -1.1.x for older).",
+      "Forgetting to copy ./prisma, migrations, the prisma CLI and node_modules/.prisma into the standalone runner image — `prisma migrate deploy`/seed then fail at startup because standalone trims them out.",
+      "Running `prisma migrate deploy` in the Dockerfile (build time) instead of the entrypoint — there's no DB at build time; it must run at container start after postgres is healthy.",
+      "Not using `exec`/tini as PID 1 — node then never receives SIGTERM, so `docker compose down` hangs 10s and kills mid-request. Use `exec ... tini --` or compose `init: true`.",
+      "Named-volume permission trap: a named volume mounted onto /app/uploads inherits the image dir's ownership only on first init; if the dir wasn't pre-chowned (or the volume pre-exists owned by root), the non-root app gets EACCES. Fix by chowning in a root entrypoint then dropping to the app user with gosu/su-exec.",
+      "Storing uploads under /app/public/uploads means Next.js standalone won't serve newly-added files without a rebuild and they bloat the served static tree — prefer a dedicated /app/uploads dir served via a route/proxy, and always keep it on a volume (container fs is ephemeral).",
+      "Baking secrets via ARG/ENV in the Dockerfile or committing .env — build args and image layers are inspectable. Pass DATABASE_URL/ADMIN_* only at runtime via env_file/secrets; commit only .env.example.",
+      "Seed that unconditionally creates/overwrites the admin — will reset a user-changed password on every restart. Guard on `admin count === 0` and upsert with empty update.",
+      "Default reverse-proxy body limits cause silent HTTP 413 on file uploads: nginx defaults to 1MB (raise client_max_body_size); also confirm Next.js Server Action / route body size limits are raised if you use them.",
+      "depends_on without `condition: service_healthy` only waits for the container to start, not for postgres to accept connections — migrations then race and fail. Always pair with a pg_isready healthcheck.",
+      "Mismatched Prisma CLI vs @prisma/client versions (common when using runtime `npx prisma`) causes migration/engine drift — pin both to the same version and use the local binary.",
+      "Postgres healthcheck env interpolation in compose: use doubled `$$` (e.g. $${POSTGRES_USER}) so the shell inside the container expands it, not compose at parse time."
+    ],
+    "sources": [
+      "https://nextjs.org/docs/app/getting-started/deploying",
+      "https://www.prisma.io/docs/guides/deployment/docker",
+      "https://blog.jonrshar.pe/2024/Dec/24/nextjs-prisma-docker.html",
+      "https://jean-marc.io/blog/setup-next.js-with-postgres-prisma-docker",
+      "https://javascript.plainenglish.io/next-js-15-self-hosting-with-docker-complete-guide-0826e15236da",
+      "https://dev.to/angojay/optimizing-nextjs-docker-images-with-standalone-mode-2nnh",
+      "https://oneuptime.com/blog/post/2026-02-17-how-to-build-a-docker-image-for-a-nextjs-application-with-standalone-output-and-deploy-to-cloud-run/view",
+      "https://pratikpc.medium.com/use-docker-compose-named-volumes-as-non-root-within-your-containers-1911eb30f731",
+      "https://www.codegenes.net/blog/docker-compose-and-named-volume-permission-denied/",
+      "https://oneuptime.com/blog/post/2026-01-24-fix-permission-denied-docker-volumes/view",
+      "https://oneuptime.com/blog/post/2025-12-16-increase-client-max-body-size-nginx/view",
+      "https://caddyserver.com/docs/caddyfile/directives/reverse_proxy",
+      "https://www.virtua.cloud/learn/en/concepts/traefik-caddy-nginx-docker-reverse-proxy",
+      "https://hostim.dev/blog/reverse-proxy-showdown/"
+    ]
+  }
+]

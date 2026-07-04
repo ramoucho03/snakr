@@ -1,0 +1,21 @@
+# Snak'r reverse proxy.
+#
+# {$APP_DOMAIN:localhost} resolves the site address from the APP_DOMAIN env var
+# (passed by docker-compose), defaulting to `localhost`:
+#   - localhost      -> Caddy serves HTTPS with its own internal CA (no ACME),
+#                       so it "just works" for local testing on https://localhost.
+#   - a real FQDN    -> Caddy provisions a public Let's Encrypt cert automatically
+#                       (ports 80 + 443 must be reachable from the internet).
+#
+# No request-body size cap is set: large uploads flow through the tus protocol in
+# 8 MB chunks, and Caddy has no default upload limit to begin with.
+
+{$APP_DOMAIN:localhost} {
+	# Transparent compression for text/JSON responses (never for already-compressed
+	# media, which Caddy skips by content type).
+	encode zstd gzip
+
+	# Forward everything to the Next.js app. reverse_proxy sets X-Forwarded-For /
+	# -Proto / -Host automatically so the app sees the real client + scheme.
+	reverse_proxy app:3000
+}

@@ -1,0 +1,207 @@
+// Snak'r — data model
+// -----------------------------------------------------------------------------
+// Physical bytes (Blob) are content-addressed by sha256 and reference-counted,
+// fully decoupled from the logical tree (Folder / File). Sessions are DB-backed
+// for instant revocation. Public share links store only a HASH of their token.
+// Internal sharing is a resource/principal ACL (Permission).
+// -----------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+  // native -> local dev (Windows/macOS/Linux)
+  // musl   -> alpine runtime engine inside the Docker image
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum ResourceType {
+  FILE
+  FOLDER
+}
+
+enum PrincipalType {
+  USER
+  GROUP
+}
+
+enum AccessLevel {
+  READ
+  WRITE
+  OWNER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String?
+  role         Role     @default(USER)
+  storageLimit BigInt? // null = unlimited (default). Optional admin cap, in bytes.
+  storageUsed  BigInt   @default(0) // bytes; reconciled on upload finish / delete
+  mustChangePw Boolean  @default(false)
+  isSuspended  Boolean  @default(false)
+  avatarKey    String? // storage key of avatar derivative, optional
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions    Session[]
+  folders     Folder[]
+  files       File[]
+  shares      Share[]
+  memberships GroupMember[]
+  grantsGiven Permission[]  @relation("GrantedBy")
+
+  @@index([role])
+}
+
+model Session {
+  id        String   @id @default(cuid()) // opaque; only this id (jose-encrypted) rides in the cookie
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  userAgent String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Folder {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    Folder?  @relation("Tree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Folder[] @relation("Tree")
+  // Materialized ancestor path for O(1) inheritance resolution: "/rootId/childId/".
+  path      String   @default("/")
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  files  File[]
+  shares Share[]
+
+  @@index([ownerId])
+  @@index([parentId])
+  @@index([path])
+}
+
+// Physical bytes — content-addressed, deduplicated, reference-counted.
+model Blob {
+  hash      String   @id // sha256 hex = storage key + integrity check
+  size      BigInt
+  mimeType  String // sniffed from magic bytes, never client-supplied
+  refCount  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  files       File[]
+  derivatives Derivative[]
+}
+
+// Logical file (metadata) — decoupled from disk layout.
+model File {
+  id        String   @id @default(cuid())
+  name      String // original filename (metadata only, never a disk path)
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  folderId  String?
+  folder    Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  blobHash  String
+  blob      Blob     @relation(fields: [blobHash], references: [hash])
+  starred   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shares Share[]
+
+  @@index([ownerId])
+  @@index([folderId])
+  @@index([blobHash])
+}
+
+// Thumbnails / posters, keyed by source blob so they're regenerable + cache-friendly.
+model Derivative {
+  id       String @id @default(cuid())
+  blobHash String
+  blob     Blob   @relation(fields: [blobHash], references: [hash], onDelete: Cascade)
+  kind     String // "thumb" | "poster" | "preview"
+  key      String // storage key of the derived asset
+  width    Int?
+  height   Int?
+
+  @@unique([blobHash, kind])
+}
+
+// PUBLIC share links — store only the HASH of the token.
+model Share {
+  id            String    @id @default(cuid())
+  fileId        String?
+  file          File?     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  folderId      String?
+  folder        Folder?   @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  tokenHash     String    @unique // sha256(token); the token itself is shown once
+  passwordHash  String? // argon2id, optional
+  expiresAt     DateTime?
+  maxDownloads  Int?
+  downloadCount Int       @default(0)
+  allowUpload   Boolean   @default(false) // drop-box style folder shares
+  revokedAt     DateTime?
+  note          String?
+  createdById   String
+  createdBy     User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+
+  @@index([createdById])
+}
+
+// INTERNAL sharing — ACL. One row per (resource, principal).
+model Permission {
+  id            String        @id @default(cuid())
+  resourceType  ResourceType
+  resourceId    String
+  principalType PrincipalType
+  principalId   String
+  level         AccessLevel
+  grantedById   String
+  grantedBy     User          @relation("GrantedBy", fields: [grantedById], references: [id], onDelete: Cascade)
+  createdAt     DateTime      @default(now())
+
+  @@unique([resourceType, resourceId, principalType, principalId])
+  @@index([principalType, principalId])
+  @@index([resourceType, resourceId])
+}
+
+model Group {
+  id        String        @id @default(cuid())
+  name      String
+  createdAt DateTime      @default(now())
+  members   GroupMember[]
+}
+
+model GroupMember {
+  groupId String
+  userId  String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, userId])
+}
+
+// Global key/value settings (registration toggle, default quota, branding, ...).
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

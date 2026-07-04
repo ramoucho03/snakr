@@ -1,0 +1,34 @@
+# Keep the build context small and prevent host artifacts from leaking into the
+# image. Critically, excluding node_modules + .next means the builder's
+# `COPY . .` cannot clobber the Linux node_modules installed in the deps stage
+# with the host's (Windows) one.
+node_modules
+.next
+out
+build
+
+# Never ship secrets or local env into the image (runtime uses env_file instead).
+.env
+.env.*
+!.env.example
+
+# VCS + local tooling
+.git
+.gitignore
+
+# Infra files not needed inside the app image
+Dockerfile
+.dockerignore
+docker-compose.yml
+Caddyfile
+
+# Docs, notes, and local data
+docs
+README.md
+data
+coverage
+
+# Build metadata / logs / OS cruft
+*.tsbuildinfo
+npm-debug.log*
+.DS_Store
