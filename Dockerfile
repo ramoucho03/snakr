@@ -63,7 +63,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 
 # --- Seed toolchain: `prisma db seed` runs `tsx prisma/seed.ts`, which imports
 #     @node-rs/argon2. None of these are guaranteed by the standalone trace, so
@@ -73,8 +72,17 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/tsx ./node_modules/t
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/esbuild ./node_modules/esbuild
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@esbuild ./node_modules/@esbuild
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@node-rs ./node_modules/@node-rs
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.bin/tsx ./node_modules/.bin/tsx
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.bin/esbuild ./node_modules/.bin/esbuild
+
+# Recreate the CLI launchers as SYMLINKS (NOT copies). `COPY node_modules/.bin/<tool>`
+# dereferences the symlink into a plain file inside .bin/, so the tool's
+# __dirname resolves to .bin/ and its sibling assets vanish — prisma then dies with
+# `ENOENT ... /app/node_modules/.bin/prisma_schema_build_bg.wasm` and the entrypoint
+# crash-loops. Relative symlinks point back into the real package dirs copied above,
+# so Node's realpath resolution finds each tool's assets (wasm, esbuild) again.
+RUN mkdir -p node_modules/.bin \
+ && ln -sf ../prisma/build/index.js node_modules/.bin/prisma \
+ && ln -sf ../tsx/dist/cli.mjs node_modules/.bin/tsx \
+ && ln -sf ../esbuild/bin/esbuild node_modules/.bin/esbuild
 
 # Upload volume mount point — created + owned before the volume is attached so
 # the entrypoint's chown has a target even on a fresh named volume.
