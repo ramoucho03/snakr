@@ -64,6 +64,7 @@ export function DriveView({
     onOpenFolder: (id) => router.push(`/drive/${id}`),
     onPreview: (f) =>
       setPreview({ id: f.id, name: f.name, mime: f.mime, size: f.size, kind: f.kind }),
+    onWatch: (id) => router.push(`/videos/${id}`),
     onDownload: (id) => {
       window.location.href = `/api/files/${id}?dl=1`;
     },

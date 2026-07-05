@@ -13,6 +13,7 @@ import {
   Trash2,
   Eye,
   FolderOpen,
+  PlayCircle,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -29,6 +30,7 @@ import type { TargetItem } from "./types";
 export interface GridCallbacks {
   onOpenFolder: (id: string) => void;
   onPreview: (file: FileDTO) => void;
+  onWatch: (fileId: string) => void;
   onDownload: (fileId: string) => void;
   onStar: (fileId: string) => void;
   onRename: (item: TargetItem) => void;
@@ -193,6 +195,11 @@ function FileCard({
         </div>
       </button>
       <CardMenu>
+        {file.kind === "video" && (
+          <DropdownItem onSelect={() => callbacks.onWatch(file.id)}>
+            <PlayCircle size={16} /> Regarder
+          </DropdownItem>
+        )}
         <DropdownItem onSelect={() => callbacks.onPreview(file)}>
           <Eye size={16} /> Aperçu
         </DropdownItem>

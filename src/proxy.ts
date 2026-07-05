@@ -19,7 +19,7 @@ import { NextResponse, type NextRequest } from "next/server";
 const SESSION_COOKIE = "snakr_session";
 
 // Routes a signed-out user has no business loading. Optimistic gate only.
-const PROTECTED_PREFIXES = ["/drive", "/admin", "/settings", "/shared"];
+const PROTECTED_PREFIXES = ["/drive", "/videos", "/admin", "/settings", "/shared"];
 
 function buildCsp(nonce: string, isDev: boolean): string {
   return [
