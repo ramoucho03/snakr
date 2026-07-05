@@ -1,7 +1,25 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, Shield, KeyRound, Share2, HardDrive, Users, Tv, Settings } from "lucide-react";
+import {
+  LogOut,
+  Shield,
+  KeyRound,
+  Share2,
+  HardDrive,
+  Users,
+  Tv,
+  Settings,
+  Download,
+} from "lucide-react";
+import {
+  BIP_EVENT,
+  installEntryAvailable,
+  getDeferredPrompt,
+  promptInstall,
+  requestIosCard,
+} from "@/components/pwa/pwa-install-bus";
 import {
   DropdownMenu,
   DropdownTrigger,
@@ -27,6 +45,26 @@ export function UserMenu({ user }: { user: UserMenuUser }) {
   const label = user.displayName || user.email;
   const channelHref = `/channel/${user.handle ?? user.id}`;
   const go = (href: string) => () => router.push(href);
+
+  // Persistent install entry point: the auto-popup is a one-shot nudge, but a
+  // user who dismissed it (or missed it) can always install from here.
+  const [canInstall, setCanInstall] = useState(false);
+  useEffect(() => {
+    const update = () => setCanInstall(installEntryAvailable());
+    update();
+    window.addEventListener(BIP_EVENT, update);
+    window.addEventListener("appinstalled", update);
+    return () => {
+      window.removeEventListener(BIP_EVENT, update);
+      window.removeEventListener("appinstalled", update);
+    };
+  }, []);
+
+  async function installApp() {
+    // Chromium: fire the native dialog; iOS: summon the tutorial card.
+    if (getDeferredPrompt()) await promptInstall();
+    else requestIosCard();
+  }
 
   return (
     <DropdownMenu>
@@ -70,6 +108,11 @@ export function UserMenu({ user }: { user: UserMenuUser }) {
         <DropdownItem onSelect={go("/change-password")}>
           <KeyRound size={16} /> Mot de passe
         </DropdownItem>
+        {canInstall && (
+          <DropdownItem onSelect={() => void installApp()}>
+            <Download size={16} /> Installer l&apos;application
+          </DropdownItem>
+        )}
         <DropdownSeparator />
         <DropdownItem danger onSelect={() => void logout()}>
           <LogOut size={16} /> Se déconnecter

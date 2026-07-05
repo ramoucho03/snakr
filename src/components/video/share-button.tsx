@@ -8,10 +8,22 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 /**
- * Share a public/unlisted video: a modal with the copyable public link. Only
- * rendered by callers once a video has actually left PRIVATE.
+ * Share a public link via a modal with a copyable field. Used for a published
+ * video and for a channel (wording overridable).
  */
-export function ShareButton({ url, size = "md" }: { url: string; size?: "sm" | "md" }) {
+export function ShareButton({
+  url,
+  size = "md",
+  label = "Partager",
+  title = "Partager la vidéo",
+  description = "Toute personne disposant du lien peut la regarder, sans compte.",
+}: {
+  url: string;
+  size?: "sm" | "md";
+  label?: string;
+  title?: string;
+  description?: string;
+}) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -30,10 +42,10 @@ export function ShareButton({ url, size = "md" }: { url: string; size?: "sm" | "
       <ModalTrigger asChild>
         <button className={cn(buttonClass({ variant: "secondary", size: size === "sm" ? "sm" : "md" }), "rounded-full")}>
           <Share2 size={size === "sm" ? 15 : 16} aria-hidden />
-          <span className={size === "sm" ? "hidden sm:inline" : ""}>Partager</span>
+          <span className={size === "sm" ? "hidden sm:inline" : ""}>{label}</span>
         </button>
       </ModalTrigger>
-      <ModalContent title="Partager la vidéo" description="Toute personne disposant du lien peut la regarder, sans compte.">
+      <ModalContent title={title} description={description}>
         <div className="flex items-center gap-2 rounded-xl border border-glass-border bg-bg-0/40 p-2">
           <input
             readOnly

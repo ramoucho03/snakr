@@ -18,6 +18,7 @@ export interface ChannelProfile {
   hasBanner: boolean;
   memberSince: Date;
   publicVideoCount: number;
+  totalViews: number;
   subscriberCount: number;
   subscribed: boolean;
   isOwner: boolean;
@@ -58,14 +59,14 @@ export async function getChannelProfile(
   });
   if (!user || user.isSuspended) return null;
 
-  const [publicVideoCount, sub] = await Promise.all([
-    prisma.file.count({
-      where: {
-        ownerId: channelId,
-        visibility: "PUBLIC",
-        blob: { mimeType: { in: [...VIDEO_MIMES] } },
-      },
-    }),
+  const publicVideoWhere = {
+    ownerId: channelId,
+    visibility: "PUBLIC" as const,
+    blob: { mimeType: { in: [...VIDEO_MIMES] } },
+  };
+  const [publicVideoCount, views, sub] = await Promise.all([
+    prisma.file.count({ where: publicVideoWhere }),
+    prisma.file.aggregate({ where: publicVideoWhere, _sum: { viewCount: true } }),
     getSubscribeState(channelId, viewerId),
   ]);
 
@@ -79,6 +80,7 @@ export async function getChannelProfile(
     hasBanner: user.bannerKey != null,
     memberSince: user.createdAt,
     publicVideoCount,
+    totalViews: views._sum.viewCount ?? 0,
     subscriberCount: sub.count,
     subscribed: sub.subscribed,
     isOwner: viewerId != null && viewerId === channelId,

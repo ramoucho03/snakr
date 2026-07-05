@@ -5,9 +5,10 @@ import type { VideoItem } from "@/components/video/types";
 import { Avatar } from "@/components/ui/avatar";
 import { buttonClass } from "@/components/ui/button";
 import { SubscribeButton } from "@/components/video/subscribe-button";
+import { ShareButton } from "@/components/video/share-button";
 import { VideoCard } from "@/components/video/video-card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { cn, formatCount, formatDate } from "@/lib/utils";
+import { cn, formatCount, formatViews, formatDate } from "@/lib/utils";
 
 /** French plural: 0 and 1 stay singular. */
 function plural(n: number, one: string, many: string): string {
@@ -23,10 +24,12 @@ export function ChannelView({
   channel,
   videos,
   canSubscribe,
+  shareUrl,
 }: {
   channel: ChannelProfile;
   videos: VideoItem[];
   canSubscribe: boolean;
+  shareUrl: string;
 }) {
   const accent = channel.accentColor;
 
@@ -113,6 +116,14 @@ export function ChannelView({
               </strong>{" "}
               {plural(channel.publicVideoCount, "vidéo", "vidéos")}
             </span>
+            {channel.totalViews > 0 && (
+              <>
+                <span className="text-text-faint" aria-hidden>
+                  ·
+                </span>
+                <span className="tabular">{formatViews(channel.totalViews)}</span>
+              </>
+            )}
           </p>
 
           {channel.bio && (
@@ -127,15 +138,15 @@ export function ChannelView({
           </p>
         </div>
 
-        {/* Owner edits their channel; everyone else can subscribe. */}
-        <div className="shrink-0 sm:self-end sm:pb-1">
+        {/* Owner edits their channel; everyone else can subscribe. Both can share. */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:self-end sm:pb-1">
           {channel.isOwner ? (
             <Link
               href="/settings"
               className={buttonClass({ variant: "secondary", className: "rounded-full" })}
             >
               <Pencil size={16} aria-hidden />
-              Personnaliser la chaîne
+              Personnaliser
             </Link>
           ) : (
             <SubscribeButton
@@ -144,6 +155,11 @@ export function ChannelView({
               canSubscribe={canSubscribe}
             />
           )}
+          <ShareButton
+            url={shareUrl}
+            title="Partager la chaîne"
+            description="Toute personne disposant du lien peut voir cette chaîne et ses vidéos publiques."
+          />
         </div>
       </div>
 
@@ -155,6 +171,14 @@ export function ChannelView({
             {formatCount(videos.length)}
           </span>
         </div>
+
+        {channel.isOwner && videos.length > 0 && channel.publicVideoCount === 0 && (
+          <div className="glass mb-5 rounded-xl p-4 text-sm text-text-lo">
+            Vos vidéos sont <strong className="text-text-hi">privées</strong>. Ouvrez une vidéo,
+            puis passez sa visibilité sur <strong className="text-text-hi">Publique</strong> pour
+            qu&apos;elle apparaisse ici pour vos visiteurs.
+          </div>
+        )}
 
         {videos.length === 0 ? (
           <EmptyState

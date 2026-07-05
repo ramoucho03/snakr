@@ -6,6 +6,7 @@ import { ThemeScript } from "@/components/theme/theme-script";
 import { Toaster } from "@/components/ui/toast";
 import { PwaProvider } from "@/components/pwa/pwa-provider";
 import { InstallPrompt } from "@/components/pwa/install-prompt";
+import { PwaCaptureScript } from "@/components/pwa/pwa-capture-script";
 
 export const metadata: Metadata = {
   title: {
@@ -131,6 +132,8 @@ export default async function RootLayout({
     <html lang="fr" suppressHydrationWarning>
       <head>
         <ThemeScript nonce={nonce} />
+        {/* Captures beforeinstallprompt pre-hydration — see pwa-install-bus. */}
+        <PwaCaptureScript nonce={nonce} />
       </head>
       <body className="min-h-dvh antialiased">
         <Aurora />

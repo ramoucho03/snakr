@@ -1,84 +1,44 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Download, Share, SquarePlus, X, Zap, WifiOff, MonitorSmartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { onUpdateBanner } from "./overlay-signal";
+import {
+  BIP_EVENT,
+  IOS_CARD_EVENT,
+  DISMISSED_LS,
+  INSTALLED_LS,
+  IOS_ACK_LS,
+  getDeferredPrompt,
+  promptInstall,
+  installSnoozed,
+  isStandaloneNow,
+  isIosDevice,
+  isInAppWebview,
+  isNonSafariIosBrowser,
+  safeGet,
+  safeSet,
+} from "./pwa-install-bus";
 
 /**
  * Branded install proposal, shown only when it can actually lead somewhere:
- *  - Chromium (Android / desktop): captures `beforeinstallprompt`, defers it,
- *    and fires the native install dialog from our own designed card.
+ *  - Chromium (Android / desktop): the nonce'd PwaCaptureScript stashes
+ *    `beforeinstallprompt` before hydration; we fire the native dialog from
+ *    our own designed card (and from the user-menu entry at any time).
  *  - iOS/iPadOS (Safari or third-party — all WebKit): no install API exists,
  *    so the card teaches the "Partager → Sur l'écran d'accueil" gesture.
  *    In-app webviews (Instagram, Gmail…) can't install at all → never shown.
  * Never rendered inside an installed app (standalone), after an install,
  * within 14 days of a dismissal, over the update banner, or over an open
- * dialog — an install nudge must stay a nudge.
+ * dialog — an install nudge must stay a nudge. The user-menu entry bypasses
+ * the snoozes (explicit intent).
  */
 
-const DISMISSED_LS = "snakr:pwa:dismissed-at";
-const INSTALLED_LS = "snakr:pwa:installed";
-const IOS_ACK_LS = "snakr:pwa:ios-ack";
-const COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
 const SHOW_DELAY_MS = 3000;
 const BUSY_RETRY_MS = 20000;
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-}
-
-/* localStorage can THROW on access (cookies blocked, some webviews). A crash
-   here would bubble to global-error.tsx and take the whole app down — never. */
-function safeGet(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-function safeSet(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // Storage unavailable — the card will simply reappear next session.
-  }
-}
-
-function isStandalone(): boolean {
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    (navigator as Navigator & { standalone?: boolean }).standalone === true
-  );
-}
-
-/** iPhone/iPod/iPad — including iPadOS 13+, which masquerades as macOS. */
-function isIos(): boolean {
-  const classic = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-  const ipadOs = navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
-  return classic || ipadOs;
-}
-
-/** In-app browsers have no “Sur l'écran d'accueil” — the tutorial would lie. */
-function isInAppWebview(): boolean {
-  return /\b(Instagram|FBAN|FBAV|FB_IAB|Line\/|GSA\/|Snapchat|Twitter)/i.test(
-    navigator.userAgent,
-  );
-}
-
-/** Chrome/Firefox/Edge on iOS: same gesture, but in THEIR share menu. */
-function isNonSafariIosBrowser(): boolean {
-  return /CriOS|FxiOS|EdgiOS/i.test(navigator.userAgent);
-}
-
-function snoozed(): boolean {
-  if (safeGet(INSTALLED_LS)) return true;
-  const at = Number(safeGet(DISMISSED_LS) ?? 0);
-  return Date.now() - at < COOLDOWN_MS;
-}
 
 /** Radix dialogs are z-50 and focus-trapped — never float the card over one. */
 function dialogOpen(): boolean {
@@ -95,47 +55,52 @@ export function InstallPrompt() {
   const [mode, setMode] = useState<"native" | "ios" | null>(null);
   const [bannerUp, setBannerUp] = useState(false);
   const [genericShareMenu, setGenericShareMenu] = useState(false);
-  const deferredRef = useRef<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
-    if (isStandalone() || snoozed()) return;
+    if (isStandaloneNow()) return;
 
     const timers: number[] = [];
     const later = (fn: () => void, ms: number) => timers.push(window.setTimeout(fn, ms));
 
     // Show, unless something more important is on screen — then retry later.
-    const tryShow = (m: "native" | "ios") => {
-      if (snoozed()) return;
+    // `force` = explicit user intent (menu entry): ignores the snoozes.
+    const tryShow = (m: "native" | "ios", force = false) => {
+      if (!force && installSnoozed()) return;
       if (dialogOpen()) {
-        later(() => tryShow(m), BUSY_RETRY_MS);
+        later(() => tryShow(m, force), BUSY_RETRY_MS);
         return;
       }
       setMode(m);
     };
 
-    const onBeforeInstall = (e: Event) => {
-      e.preventDefault();
-      deferredRef.current = e as BeforeInstallPromptEvent;
-      later(() => tryShow("native"), SHOW_DELAY_MS);
-    };
-    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    // Chromium: the capture script may have stashed the event BEFORE we
+    // mounted (fast fire) — check; otherwise wait for its re-notification.
+    if (getDeferredPrompt()) later(() => tryShow("native"), SHOW_DELAY_MS);
+    const onBip = () => later(() => tryShow("native"), SHOW_DELAY_MS);
+    window.addEventListener(BIP_EVENT, onBip);
 
     const onInstalled = () => {
       safeSet(INSTALLED_LS, "1");
-      deferredRef.current = null;
       setMode(null);
       toast.success("Snak'r est installé sur cet appareil");
     };
     window.addEventListener("appinstalled", onInstalled);
 
-    if (isIos() && !isInAppWebview() && !safeGet(IOS_ACK_LS)) {
-      setGenericShareMenu(isNonSafariIosBrowser());
+    // iOS tutorial: auto once (until acknowledged), any time via the menu.
+    const iosEligible = isIosDevice() && !isInAppWebview();
+    if (iosEligible) setGenericShareMenu(isNonSafariIosBrowser());
+    if (iosEligible && !safeGet(IOS_ACK_LS)) {
       later(() => tryShow("ios"), SHOW_DELAY_MS);
     }
+    const onIosCardRequest = () => {
+      if (iosEligible) tryShow("ios", true);
+    };
+    window.addEventListener(IOS_CARD_EVENT, onIosCardRequest);
 
     return () => {
-      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+      window.removeEventListener(BIP_EVENT, onBip);
       window.removeEventListener("appinstalled", onInstalled);
+      window.removeEventListener(IOS_CARD_EVENT, onIosCardRequest);
       timers.forEach(clearTimeout);
     };
   }, []);
@@ -166,24 +131,10 @@ export function InstallPrompt() {
   }
 
   async function install() {
-    const deferred = deferredRef.current;
-    if (!deferred) return;
-    // Consume synchronously: a second click during the exit animation must not
-    // call prompt() twice (InvalidStateError on an already-used event).
-    deferredRef.current = null;
     setMode(null);
-    try {
-      await deferred.prompt();
-      const { outcome } = await deferred.userChoice;
-      // Accepted → the `appinstalled` listener celebrates; declined → snooze.
-      if (outcome === "dismissed") dismissQuietly();
-    } catch {
-      dismissQuietly();
-    }
-  }
-
-  function dismissQuietly() {
-    safeSet(DISMISSED_LS, String(Date.now()));
+    await promptInstall();
+    // Accepted → the `appinstalled` listener celebrates; declined → the bus
+    // already snoozed. Nothing else to do here.
   }
 
   const visible = mode !== null && !bannerUp;

@@ -201,6 +201,34 @@ APP_URL="https://files.exemple.com"
 
 > 🔒 En production le cookie de session est marqué `Secure` : la connexion **doit** se faire via l'URL HTTPS du proxy. `http://192.168.0.200:3000` en direct affichera l'app mais la session ne tiendra pas — c'est voulu. N'exposez au proxy que le port 3000 ; jamais le 5432 (PostgreSQL).
 
+### Installer l'application (PWA) sur téléphone et PC
+
+Snak'r se propose à l'installation via un popup (≈ 3 s après le chargement) et via le menu du compte → **« Installer l'application »**. Mais une condition est **non négociable** :
+
+> ⚠️ **Chrome/Android n'affiche JAMAIS de proposition d'installation sans HTTPS de confiance.** Certificat auto-signé non reconnu par le téléphone, ou accès en `http://IP:3000` = pas de service worker = pas d'installation, silencieusement. (Le mode dev `npm run dev` n'enregistre pas non plus le service worker — testez sur le build de production.) En cas de doute, ouvrez la console du navigateur : les messages `[Snak'r PWA]` disent exactement ce qui bloque.
+
+Sans nom de domaine, deux façons d'obtenir un HTTPS reconnu :
+
+**Option A — Tailscale (recommandée : gratuit, zéro port ouvert).** Installez [Tailscale](https://tailscale.com) sur le serveur et sur vos appareils (même compte), activez HTTPS dans la console Tailscale (*DNS → HTTPS Certificates*), puis sur le serveur :
+
+```bash
+tailscale serve --bg https / http://localhost:3000
+```
+
+Votre instance est alors sur `https://votre-serveur.votre-tailnet.ts.net` avec un **vrai certificat Let's Encrypt**, reconnu par tous vos appareils, partout — sans toucher à la box. (Mettez cette URL dans `APP_URL`.)
+
+**Option B — Autorité locale (Caddy embarqué).** En déploiement standard (Caddy inclus, `APP_DOMAIN` = IP ou nom local), Caddy signe avec sa propre autorité. Installez ce certificat racine sur **chaque appareil** :
+
+```bash
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .
+```
+
+- **Android** : envoyez `root.crt` sur le téléphone → Paramètres → Sécurité → Chiffrement et identifiants → Installer un certificat → **Certificat CA**.
+- **iOS** : envoyez le fichier → Réglages → Général → VPN et gestion des appareils → installer le profil, **puis** Réglages → Général → Informations → Réglages des certificats → activer la confiance totale.
+- **PC** : double-clic sur `root.crt` → installer dans « Autorités de certification racines de confiance ».
+
+Une fois l'origine reconnue : Android propose le popup d'installation, Chrome/Edge PC affichent l'icône d'installation dans la barre d'adresse, et iPhone passe par Partager → « Sur l'écran d'accueil » (le tutoriel intégré s'affiche automatiquement).
+
 ### Sans nom de domaine ?
 
 Deux options pour tester sans FQDN :

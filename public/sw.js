@@ -12,12 +12,14 @@
  * Bump VERSION to invalidate every cache on the next deploy; the app shows an
  * update banner when a new worker is waiting (see PwaProvider).
  */
-const VERSION = "v1";
+const VERSION = "v2";
 const STATIC_CACHE = `snakr-static-${VERSION}`;
 const OFFLINE_URL = "/offline.html";
 
-const PRECACHE = [
-  OFFLINE_URL,
+// Nice-to-haves for the offline page. If one is missing on a given deploy,
+// the install MUST still succeed: a bricked install means the browser never
+// activates the worker — and Chrome then never offers to install the app.
+const PRECACHE_OPTIONAL = [
   "/favicon.svg",
   "/brand/logo-512.webp",
   "/brand/icon-192.png",
@@ -25,7 +27,10 @@ const PRECACHE = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE)),
+    caches.open(STATIC_CACHE).then(async (cache) => {
+      await cache.add(OFFLINE_URL); // the only must-have
+      await Promise.allSettled(PRECACHE_OPTIONAL.map((url) => cache.add(url)));
+    }),
   );
 });
 

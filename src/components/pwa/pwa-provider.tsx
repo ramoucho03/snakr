@@ -22,7 +22,23 @@ export function PwaProvider() {
   const wantReload = useRef(false);
 
   useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
+    // Self-hosters land on "why is there no install prompt?" — answer it in
+    // the console instead of failing silently. The #1 cause: Chrome/Android
+    // requires a TRUSTED HTTPS origin; self-signed certs and plain HTTP get
+    // no service worker and therefore no install proposal, ever.
+    if (!window.isSecureContext) {
+      console.warn(
+        `[Snak'r PWA] Origine non sécurisée (${window.location.origin}) : ` +
+          "le service worker et l'installation exigent HTTPS avec un certificat " +
+          "RECONNU par l'appareil (ou localhost). Aucune proposition " +
+          "d'installation ne peut apparaître ici — voir la section PWA du README.",
+      );
+      return;
+    }
+    if (!("serviceWorker" in navigator)) {
+      console.warn("[Snak'r PWA] serviceWorker non supporté par ce navigateur.");
+      return;
+    }
 
     if (process.env.NODE_ENV !== "production") {
       // A production build served earlier on this origin (e.g. the Docker
@@ -58,11 +74,19 @@ export function PwaProvider() {
             if (next.state === "installed" && navigator.serviceWorker.controller) {
               setWaiting(next);
             }
+            // An install-phase failure means Chrome will NEVER offer the app.
+            if (next.state === "redundant" && !navigator.serviceWorker.controller) {
+              console.warn(
+                "[Snak'r PWA] L'installation du service worker a échoué " +
+                  "(précache indisponible ?) — pas de proposition d'installation possible.",
+              );
+            }
           });
         });
       })
-      .catch(() => {
-        // Registration failing (old browser, private mode) is never fatal.
+      .catch((err) => {
+        // Never fatal for the app — but say WHY install won't be offered.
+        console.warn("[Snak'r PWA] Échec d'enregistrement du service worker :", err);
       });
 
     return () =>
