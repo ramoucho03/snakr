@@ -38,7 +38,7 @@ export function CtaBand({ authed }: { authed: boolean }) {
         className="flex flex-col items-center gap-6 rounded-2xl px-6 py-14 text-center sm:px-12"
       >
         <h2 className="font-display text-[clamp(1.9rem,4vw,3rem)] font-semibold leading-[1.05] tracking-[-0.02em] text-text-hi">
-          Reprenez le contrôle de <span className="neon-text">vos fichiers</span>.
+          Reprenez le contrôle de <span className="brand-text">vos fichiers</span>.
         </h2>
         <p className="max-w-xl text-base text-text-lo sm:text-lg">
           Déployez Snak&apos;r sur votre serveur en quelques minutes. Vos données,

@@ -22,37 +22,37 @@ type Feature = {
 const FEATURES: Feature[] = [
   {
     icon: CloudUpload,
-    tint: "text-neon-violet",
+    tint: "text-bone",
     title: "Uploads résumables",
     body: "Envoyez des fichiers de plusieurs Go via tus. Coupure réseau ou onglet fermé ? On met en pause et on reprend — jamais depuis le début.",
   },
   {
     icon: Eye,
-    tint: "text-neon-cyan",
+    tint: "text-tan",
     title: "Prévisualisation universelle",
     body: "Images, vidéo, PDF, code source, documents Word… tout s'affiche directement dans le navigateur, sans rien télécharger.",
   },
   {
     icon: Share2,
-    tint: "text-neon-magenta",
+    tint: "text-smoke",
     title: "Partage par lien",
     body: "Protégez chaque lien par mot de passe, date d'expiration et quota de téléchargements. Vous gardez le contrôle, à chaque envoi.",
   },
   {
     icon: FolderTree,
-    tint: "text-neon-violet",
+    tint: "text-bone",
     title: "Dossiers & permissions",
     body: "Organisez tout en arborescence claire et attribuez des permissions fines à chaque dossier, pour partager sans tout exposer.",
   },
   {
     icon: ShieldCheck,
-    tint: "text-neon-cyan",
+    tint: "text-tan",
     title: "Sécurité sérieuse",
     body: "Sessions révocables à tout moment, mots de passe hachés en argon2id et CSP stricte. Vos données restent les vôtres.",
   },
   {
     icon: ServerCog,
-    tint: "text-neon-magenta",
+    tint: "text-smoke",
     title: "100% auto-hébergé",
     body: (
       <>
@@ -97,7 +97,7 @@ export function FeatureGrid() {
           Fonctionnalités
         </p>
         <h2 className="font-display text-[clamp(1.8rem,3.5vw,2.75rem)] font-semibold tracking-[-0.02em] text-text-hi">
-          Tout pour partager <span className="neon-text">sereinement</span>
+          Tout pour partager <span className="brand-text">sereinement</span>
         </h2>
       </motion.div>
 

@@ -17,6 +17,7 @@ export const metadata: Metadata = {
   keywords: ["partage de fichiers", "cloud", "transfert", "upload", "Snak'r"],
   icons: {
     icon: "/favicon.svg",
+    apple: "/apple-touch-icon.png",
   },
 };
 
@@ -24,8 +25,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#07070c" },
-    { media: "(prefers-color-scheme: light)", color: "#eef1f8" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b0a07" },
+    { media: "(prefers-color-scheme: light)", color: "#eae2cd" },
   ],
 };
 

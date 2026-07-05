@@ -27,8 +27,8 @@ export default function GlobalError({
           minHeight: "100dvh",
           display: "grid",
           placeItems: "center",
-          background: "#07070c",
-          color: "#f4f5ff",
+          background: "#0b0a07",
+          color: "#f2ead8",
           fontFamily: "system-ui, sans-serif",
           padding: "2rem",
         }}
@@ -37,7 +37,7 @@ export default function GlobalError({
           <h1 style={{ fontSize: "1.4rem", marginBottom: ".5rem" }}>
             Erreur inattendue
           </h1>
-          <p style={{ color: "rgba(244,245,255,.64)", marginBottom: "1.5rem" }}>
+          <p style={{ color: "rgba(242,234,216,.64)", marginBottom: "1.5rem" }}>
             L'application a rencontré un problème. Veuillez réessayer.
           </p>
           <button
@@ -47,8 +47,8 @@ export default function GlobalError({
               border: "none",
               borderRadius: 12,
               padding: ".7rem 1.4rem",
-              background: "#8b5cf6",
-              color: "#fff",
+              background: "#e8dcc2",
+              color: "#14110c",
               fontSize: ".95rem",
               fontWeight: 500,
             }}

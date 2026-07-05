@@ -12,13 +12,13 @@ import type { PreviewKind } from "@/lib/mime";
 import { cn } from "@/lib/utils";
 
 const MAP: Record<PreviewKind, { icon: LucideIcon; tint: string }> = {
-  image: { icon: ImageIcon, tint: "text-neon-cyan" },
-  video: { icon: Video, tint: "text-neon-magenta" },
-  audio: { icon: Music, tint: "text-neon-violet" },
+  image: { icon: ImageIcon, tint: "text-tan" },
+  video: { icon: Video, tint: "text-bone" },
+  audio: { icon: Music, tint: "text-smoke" },
   pdf: { icon: FileText, tint: "text-danger" },
-  text: { icon: FileCode, tint: "text-neon-cyan" },
-  markdown: { icon: FileText, tint: "text-neon-violet" },
-  docx: { icon: FileText, tint: "text-neon-cyan" },
+  text: { icon: FileCode, tint: "text-tan" },
+  markdown: { icon: FileText, tint: "text-bone" },
+  docx: { icon: FileText, tint: "text-smoke" },
   sheet: { icon: FileSpreadsheet, tint: "text-success" },
   generic: { icon: File, tint: "text-text-lo" },
 };

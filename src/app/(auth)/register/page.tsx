@@ -17,7 +17,7 @@ export default async function RegisterPage() {
       <GlassCard strong className="flex flex-col gap-6 p-7 sm:p-9">
         <header className="flex flex-col gap-1.5">
           <h1 className="font-display text-2xl font-semibold tracking-tight text-text-hi">
-            Inscriptions <span className="neon-text">fermées</span>
+            Inscriptions <span className="brand-text">fermées</span>
           </h1>
           <p className="text-sm text-text-lo">
             La création de compte est actuellement désactivée sur cette

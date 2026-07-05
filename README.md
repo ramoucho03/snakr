@@ -1,6 +1,10 @@
+<p align="center">
+  <img src="public/brand/logo-512.webp" alt="Snak'r" width="200" />
+</p>
+
 # Snak'r
 
-**We ride, we partage.** A self-hosted, offline-capable file transfer & sharing platform — resumable multi-GB uploads, universal in-app preview, secure public links, and a dark-neon glassmorphism UI. One command to run.
+**We ride, we partage.** A self-hosted, offline-capable file transfer & sharing platform — resumable multi-GB uploads, universal in-app preview, secure public links, and an ink-black & bone grunge UI straight from the Snak'r logo. One command to run.
 
 Built on **Next.js 16** (App Router, standalone) · **PostgreSQL 16** · **Prisma** · local-disk storage (S3-swappable) · **tus** resumable uploads · **argon2id** auth · a strict self-only CSP.
 

@@ -19,7 +19,7 @@ export function ChangePasswordForm({ mustChange }: { mustChange?: boolean }) {
     >
       <header className="flex flex-col gap-1.5">
         <h1 className="font-display text-2xl font-semibold tracking-tight text-text-hi">
-          Changer le <span className="neon-text">mot de passe</span>
+          Changer le <span className="brand-text">mot de passe</span>
         </h1>
         <p className="text-sm text-text-lo">
           Choisissez un nouveau mot de passe robuste.

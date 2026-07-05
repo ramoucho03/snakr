@@ -64,7 +64,7 @@ function Thumb({
           className="absolute inset-0 h-full w-full object-cover"
         />
       ) : (
-        <div className="absolute inset-0 grid place-items-center bg-gradient-to-br from-neon-violet/25 via-bg-1 to-neon-cyan/20">
+        <div className="absolute inset-0 grid place-items-center bg-gradient-to-br from-tan/25 via-bg-1 to-smoke/20">
           <Play size={34} className="text-text-hi/70" aria-hidden />
         </div>
       )}

@@ -19,7 +19,7 @@ export function LoginForm({ next }: { next?: string }) {
     >
       <header className="flex flex-col gap-1.5">
         <h1 className="font-display text-2xl font-semibold tracking-tight text-text-hi">
-          Bon retour <span className="neon-text">parmi nous</span>
+          Bon retour <span className="brand-text">parmi nous</span>
         </h1>
         <p className="text-sm text-text-lo">
           Connectez-vous pour accéder à vos fichiers.

@@ -37,11 +37,23 @@ export function HeroReveals({ authed }: { authed: boolean }) {
       animate="show"
       className="mx-auto flex max-w-3xl flex-col items-center text-center"
     >
+      <motion.div variants={item} className="mb-8">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/brand/logo-512.webp"
+          alt="Logo Snak'r"
+          width={512}
+          height={512}
+          fetchPriority="high"
+          className="h-44 w-44 rounded-3xl border border-glass-border shadow-(--shadow-float) sm:h-56 sm:w-56"
+        />
+      </motion.div>
+
       <motion.span
         variants={item}
         className="glass glass-sheen mb-7 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm text-text-lo"
       >
-        <Sparkles size={15} className="text-neon-cyan" aria-hidden />
+        <Sparkles size={15} className="text-tan" aria-hidden />
         Auto-hébergé · Open source · Sans limites
       </motion.span>
 
@@ -49,7 +61,7 @@ export function HeroReveals({ authed }: { authed: boolean }) {
         variants={item}
         className="font-display text-[clamp(2.6rem,6vw,5rem)] font-semibold leading-[1.02] tracking-[-0.03em] text-text-hi"
       >
-        Vos fichiers, <span className="neon-text">sans limites</span>.
+        Vos fichiers, <span className="brand-text">sans limites</span>.
       </motion.h1>
 
       <motion.p

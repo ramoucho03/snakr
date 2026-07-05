@@ -55,7 +55,7 @@ const ICON = {
 const TINT = {
   success: "text-success",
   error: "text-danger",
-  info: "text-neon-cyan",
+  info: "text-tan",
 } as const;
 
 export function Toaster() {

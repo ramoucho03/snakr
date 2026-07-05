@@ -1,8 +1,9 @@
 /**
- * The aurora backdrop. Three pre-blurred, slowly drifting colour orbs plus a
- * film-grain overlay. This is what the glass surfaces refract — without it,
- * dark glass is invisible on flat black. Pure CSS (no JS), so it costs nothing
- * on the main thread and honours prefers-reduced-motion / -transparency.
+ * The smoke backdrop. Three pre-blurred, slowly drifting bone-toned haze pools
+ * plus a film-grain overlay (the logo's splatter texture). This is what the
+ * glass surfaces refract — without it, dark glass is invisible on flat black.
+ * Pure CSS (no JS), so it costs nothing on the main thread and honours
+ * prefers-reduced-motion / -transparency.
  */
 export function Aurora() {
   return (
@@ -15,7 +16,7 @@ export function Aurora() {
             height: "48vw",
             left: "-10vw",
             top: "-12vh",
-            background: "var(--neon-violet)",
+            background: "var(--tan)",
           }}
         />
         <span
@@ -25,7 +26,7 @@ export function Aurora() {
             height: "42vw",
             right: "-8vw",
             top: "-4vh",
-            background: "var(--neon-cyan)",
+            background: "var(--smoke)",
           }}
         />
         <span
@@ -35,7 +36,7 @@ export function Aurora() {
             height: "38vw",
             left: "28vw",
             bottom: "-18vh",
-            background: "var(--neon-magenta)",
+            background: "var(--bone)",
           }}
         />
       </div>

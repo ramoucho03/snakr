@@ -19,7 +19,7 @@ export function RegisterForm() {
     >
       <header className="flex flex-col gap-1.5">
         <h1 className="font-display text-2xl font-semibold tracking-tight text-text-hi">
-          Créer un <span className="neon-text">compte</span>
+          Créer un <span className="brand-text">compte</span>
         </h1>
         <p className="text-sm text-text-lo">
           Rejoignez Snak’r et partagez vos fichiers en toute sécurité.
