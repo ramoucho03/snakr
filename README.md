@@ -154,12 +154,57 @@ docker compose logs -f app   # logs de l'application (Ctrl+C pour quitter)
 3. L'application vous force à **changer le mot de passe** à la première connexion.
 4. Les inscriptions sont **fermées par défaut** — ouvrez-les depuis la console d'administration si besoin.
 
+### Derrière votre propre reverse proxy (Nginx, Nginx Proxy Manager…)
+
+Si un reverse proxy tourne déjà chez vous (Nginx, Nginx Proxy Manager, Traefik…), inutile du Caddy embarqué : l'overlay `docker-compose.lan.yml` le désactive et expose l'application directement sur le réseau local, prête à être proxifiée.
+
+**1. Lancez en mode LAN** (sur la machine qui héberge Snak'r, ex. `192.168.0.200`) :
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d --build
+```
+
+L'application répond alors en HTTP sur `http://192.168.0.200:3000`.
+
+**2. Configurez le proxy.** Avec **Nginx Proxy Manager** : nouveau *Proxy Host* → domaine public, scheme `http`, forward vers `192.168.0.200` port `3000`, et activez le SSL (Let's Encrypt) dans l'onglet dédié. Avec **Nginx** brut :
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name files.exemple.com;
+    # ... vos certificats ...
+
+    # Uploads tus multi-Go : pas de limite de taille, pas de buffering
+    client_max_body_size 0;
+    proxy_request_buffering off;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+
+    location / {
+        proxy_pass http://192.168.0.200:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+(Les uploads passent par tus en chunks de 8 Mo, donc même un `client_max_body_size` par défaut fonctionne — mais `0` + `proxy_request_buffering off` est plus propre pour les gros transferts.)
+
+**3. `.env`** : mettez l'URL publique servie par votre proxy :
+
+```bash
+APP_URL="https://files.exemple.com"
+```
+
+> 🔒 En production le cookie de session est marqué `Secure` : la connexion **doit** se faire via l'URL HTTPS du proxy. `http://192.168.0.200:3000` en direct affichera l'app mais la session ne tiendra pas — c'est voulu. N'exposez au proxy que le port 3000 ; jamais le 5432 (PostgreSQL).
+
 ### Sans nom de domaine ?
 
 Deux options pour tester sans FQDN :
 
 - **IP en HTTPS auto-signé** : mettez l'IP du serveur dans `APP_DOMAIN` (ex. `APP_DOMAIN=203.0.113.10`). Caddy servira un certificat interne — le navigateur affichera un avertissement, c'est normal.
-- **HTTP direct sur le port 3000** : dans `docker-compose.yml`, remplacez `"127.0.0.1:3000:3000"` par `"3000:3000"`, ouvrez le port (`sudo ufw allow 3000/tcp`) et accédez à `http://IP-du-serveur:3000`. À réserver aux tests : le trafic n'est pas chiffré.
+- **HTTP direct sur le port 3000** : lancez avec l'overlay LAN (`docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d --build`), ouvrez le port (`sudo ufw allow 3000/tcp`) et accédez à `http://IP-du-serveur:3000`. Limite : en production le cookie de session exige HTTPS, donc la connexion ne persistera pas en HTTP pur — ce mode ne sert qu'à vérifier que l'app répond, ou à placer votre propre reverse proxy devant (voir section précédente).
 
 ### Maintenance
 

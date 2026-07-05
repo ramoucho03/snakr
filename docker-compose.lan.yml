@@ -1,0 +1,19 @@
+# Snak'r — LAN overlay: run WITHOUT the bundled Caddy and expose the app
+# directly on the local network, for setups where an EXTERNAL reverse proxy
+# (Nginx, Nginx Proxy Manager, Traefik…) terminates TLS and forwards here.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d --build
+#
+# The app then answers on http://<lan-ip-of-this-machine>:3000 — point the
+# external proxy at that address. Session cookies are Secure in production, so
+# users must browse through the proxy's HTTPS URL, never the bare IP.
+services:
+  app:
+    # Replaces (not appends to) the loopback-only binding of the base file.
+    ports: !override
+      - "3000:3000"
+
+  caddy:
+    # Parked under a never-enabled profile so `up` doesn't start it — TLS and
+    # ports 80/443 belong to the external proxy in this setup.
+    profiles: ["external-proxy-instead"]
