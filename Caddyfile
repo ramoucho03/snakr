@@ -10,7 +10,23 @@
 # No request-body size cap is set: large uploads flow through the tus protocol in
 # 8 MB chunks, and Caddy has no default upload limit to begin with.
 
+{
+	# Clients that connect by a bare IP (e.g. https://192.168.0.200) send NO SNI —
+	# the TLS SNI extension only carries hostnames (RFC 6066). Without this, Caddy
+	# has no name to select a certificate by and aborts the handshake ("internal
+	# error" alert → ERR_SSL_PROTOCOL_ERROR). default_sni tells Caddy which site to
+	# assume when the client sends none.
+	default_sni {$APP_DOMAIN:localhost}
+}
+
 {$APP_DOMAIN:localhost} {
+	# LAN / bare-IP deployments (e.g. APP_DOMAIN=192.168.0.200) can't get a public
+	# Let's Encrypt cert, so force Caddy's INTERNAL CA — it always has a cert to
+	# serve on 443. Browsers show a one-time "not trusted" warning (click through,
+	# or install Caddy's root CA on clients). REMOVE this line when APP_DOMAIN is a
+	# public FQDN, so Caddy uses a trusted Let's Encrypt certificate instead.
+	tls internal
+
 	# Transparent compression for text/JSON responses (never for already-compressed
 	# media, which Caddy skips by content type).
 	encode zstd gzip
