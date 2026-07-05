@@ -209,13 +209,18 @@ Snak'r se propose à l'installation via un popup (≈ 3 s après le chargement) 
 
 Sans nom de domaine, deux façons d'obtenir un HTTPS reconnu :
 
-**Option A — Tailscale (recommandée : gratuit, zéro port ouvert).** Installez [Tailscale](https://tailscale.com) sur le serveur et sur vos appareils (même compte), activez HTTPS dans la console Tailscale (*DNS → HTTPS Certificates*), puis sur le serveur :
+**Option A — Tailscale (recommandée : gratuit, zéro port ouvert, clé-en-main).** Un overlay Docker est fourni — rien à installer sur le serveur :
+
+1. Créez un compte [Tailscale](https://tailscale.com) (gratuit) et installez l'app sur vos appareils (même compte).
+2. Générez une clé d'authentification ([console → Settings → Keys](https://login.tailscale.com/admin/settings/keys)) et ajoutez-la dans `.env` : `TS_AUTHKEY=tskey-auth-…`
+3. Activez les certificats : console Tailscale → *DNS → HTTPS Certificates*.
+4. Lancez avec l'overlay :
 
 ```bash
-tailscale serve --bg https / http://localhost:3000
+docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d --build
 ```
 
-Votre instance est alors sur `https://votre-serveur.votre-tailnet.ts.net` avec un **vrai certificat Let's Encrypt**, reconnu par tous vos appareils, partout — sans toucher à la box. (Mettez cette URL dans `APP_URL`.)
+Votre instance est alors sur `https://snakr.<votre-tailnet>.ts.net` avec un **vrai certificat Let's Encrypt**, reconnu par tous vos appareils, où que vous soyez — sans toucher à la box. Mettez cette URL dans `APP_URL`, et l'installation PWA fonctionne immédiatement (popup + menu du compte).
 
 **Option B — Autorité locale (Caddy embarqué).** En déploiement standard (Caddy inclus, `APP_DOMAIN` = IP ou nom local), Caddy signe avec sa propre autorité. Installez ce certificat racine sur **chaque appareil** :
 

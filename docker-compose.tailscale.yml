@@ -1,0 +1,51 @@
+# Snak'r — Tailscale overlay: trusted HTTPS with NO domain and NO open ports.
+#
+# Chrome (Android surtout) n'autorise le service worker et l'installation PWA
+# qu'avec un certificat RECONNU par l'appareil. Cet overlay expose l'app sur
+# votre tailnet avec un vrai certificat Let's Encrypt (*.ts.net) :
+#
+#   1. Créez une clé d'auth :   https://login.tailscale.com/admin/settings/keys
+#   2. Dans .env :              TS_AUTHKEY=tskey-auth-...
+#   3. Activez HTTPS :          console Tailscale → DNS → HTTPS Certificates
+#   4. Lancez :
+#      docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d --build
+#
+# L'app devient https://snakr.<votre-tailnet>.ts.net sur tous vos appareils
+# connectés au tailnet (app Tailscale installée, même compte). Mettez cette
+# URL dans APP_URL. Le Caddy embarqué est inutile ici et reste éteint.
+services:
+  tailscale:
+    image: tailscale/tailscale:latest
+    hostname: snakr # => https://snakr.<tailnet>.ts.net
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - ./tailscale-serve.json:/config/serve.json:ro
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+
+  app:
+    # The app shares the tailscale network namespace so serve.json can proxy
+    # 443 → 127.0.0.1:3000. `postgres` still resolves (same compose network
+    # via the tailscale container). Port publishing is incompatible with
+    # network_mode — and unnecessary: traffic arrives via the tailnet.
+    network_mode: service:tailscale
+    ports: !override []
+    depends_on:
+      tailscale:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+  caddy:
+    # TLS belongs to Tailscale in this setup.
+    profiles: ["tailscale-instead"]
+
+volumes:
+  tailscale_state:

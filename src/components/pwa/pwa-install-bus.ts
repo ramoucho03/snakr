@@ -98,12 +98,27 @@ export function installSnoozed(): boolean {
   return Date.now() - at < COOLDOWN_MS;
 }
 
-/** Can THIS device/browser reach an install path at all (for the menu entry)? */
+/**
+ * The menu entry shows whenever the app ISN'T already installed here: even
+ * when no install path exists (insecure origin, Firefox…), tapping it must
+ * EXPLAIN why instead of the app staying silent — see installStatus().
+ */
 export function installEntryAvailable(): boolean {
   if (isStandaloneNow()) return false;
-  if (safeGet(INSTALLED_LS)) return false;
-  if (getDeferredPrompt()) return true;
-  return isIosDevice() && !isInAppWebview();
+  return !safeGet(INSTALLED_LS);
+}
+
+export type InstallStatus =
+  | "native" // Chromium event in hand → fire the real dialog
+  | "ios" // WebKit → tutorial card
+  | "insecure" // no trusted HTTPS → nothing CAN work (Chrome rule)
+  | "manual"; // capable browser but no event (yet) → point at browser menu
+
+export function installStatus(): InstallStatus {
+  if (!window.isSecureContext) return "insecure";
+  if (getDeferredPrompt()) return "native";
+  if (isIosDevice() && !isInAppWebview()) return "ios";
+  return "manual";
 }
 
 /** Summon the iOS tutorial card (explicit user intent — bypasses snoozes). */

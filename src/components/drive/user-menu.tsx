@@ -13,10 +13,11 @@ import {
   Settings,
   Download,
 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 import {
   BIP_EVENT,
   installEntryAvailable,
-  getDeferredPrompt,
+  installStatus,
   promptInstall,
   requestIosCard,
 } from "@/components/pwa/pwa-install-bus";
@@ -61,9 +62,28 @@ export function UserMenu({ user }: { user: UserMenuUser }) {
   }, []);
 
   async function installApp() {
-    // Chromium: fire the native dialog; iOS: summon the tutorial card.
-    if (getDeferredPrompt()) await promptInstall();
-    else requestIosCard();
+    // Whatever the situation, tapping this entry ALWAYS answers something.
+    switch (installStatus()) {
+      case "native":
+        await promptInstall();
+        break;
+      case "ios":
+        requestIosCard();
+        break;
+      case "insecure":
+        toast.error(
+          "Installation impossible : cette adresse n'est pas servie en HTTPS " +
+            "de confiance. Voir la section « Installer l'application » du README.",
+        );
+        break;
+      case "manual":
+        toast.info(
+          "Votre navigateur ne propose pas l'installation automatique ici — " +
+            "utilisez son menu (⋮ ou barre d'adresse) → « Installer l'application » " +
+            "ou « Ajouter à l'écran d'accueil ».",
+        );
+        break;
+    }
   }
 
   return (
