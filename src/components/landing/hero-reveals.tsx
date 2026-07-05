@@ -51,7 +51,7 @@ export function HeroReveals({ authed }: { authed: boolean }) {
 
       <motion.span
         variants={item}
-        className="glass glass-sheen mb-7 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm text-text-lo"
+        className="glass glass-sheen mb-7 inline-flex max-w-full items-center gap-2 rounded-full px-4 py-1.5 text-center text-sm text-text-lo"
       >
         <Sparkles size={15} className="text-tan" aria-hidden />
         Auto-hébergé · Open source · Sans limites
@@ -81,12 +81,16 @@ export function HeroReveals({ authed }: { authed: boolean }) {
 
       <motion.div
         variants={item}
-        className="mt-10 flex flex-col items-center gap-3 sm:flex-row"
+        className="mt-10 flex w-full max-w-md flex-col items-center gap-3 sm:w-auto sm:max-w-none sm:flex-row"
       >
         {authed ? (
           <Link
             href="/drive"
-            className={buttonClass({ variant: "primary", size: "lg" })}
+            className={buttonClass({
+              variant: "primary",
+              size: "lg",
+              className: "w-full sm:w-auto",
+            })}
           >
             Ouvrir mon drive
             <ArrowRight size={18} aria-hidden />
@@ -95,14 +99,22 @@ export function HeroReveals({ authed }: { authed: boolean }) {
           <>
             <Link
               href="/register"
-              className={buttonClass({ variant: "primary", size: "lg" })}
+              className={buttonClass({
+                variant: "primary",
+                size: "lg",
+                className: "w-full sm:w-auto",
+              })}
             >
               Commencer gratuitement
               <ArrowRight size={18} aria-hidden />
             </Link>
             <Link
               href="/login"
-              className={buttonClass({ variant: "secondary", size: "lg" })}
+              className={buttonClass({
+                variant: "secondary",
+                size: "lg",
+                className: "w-full sm:w-auto",
+              })}
             >
               Se connecter
             </Link>

@@ -19,7 +19,7 @@ import { DownloadCard } from "../download-card";
 const CAP = 400 * 1024;
 
 const PROSE = cn(
-  "mx-auto max-w-3xl px-6 py-6 text-[15px] leading-7 text-text-lo",
+  "mx-auto max-w-3xl px-4 py-5 text-[15px] leading-7 text-text-lo sm:px-6 sm:py-6",
   "[&_h1]:mb-3 [&_h1]:mt-6 [&_h1]:font-display [&_h1]:text-3xl [&_h1]:font-semibold [&_h1]:text-text-hi",
   "[&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:font-display [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:text-text-hi",
   "[&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:font-display [&_h3]:text-xl [&_h3]:font-semibold [&_h3]:text-text-hi",
@@ -34,7 +34,7 @@ const PROSE = cn(
   "[&_pre]:my-4 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-black/30 [&_pre]:p-4 [&_pre]:text-[13px]",
   "[&_pre_code]:bg-transparent [&_pre_code]:p-0",
   "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-glass [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[0.9em] [&_:not(pre)>code]:text-text-hi",
-  "[&_table]:my-4 [&_table]:w-full [&_table]:border-collapse [&_table]:text-sm",
+  "[&_table]:my-4 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:border-collapse [&_table]:text-sm",
   "[&_th]:border [&_th]:border-glass-border [&_th]:bg-glass-strong [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-left [&_th]:text-text-hi",
   "[&_td]:border [&_td]:border-glass-border [&_td]:px-3 [&_td]:py-1.5",
 );

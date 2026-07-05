@@ -43,7 +43,7 @@ export default function PdfViewer({ file }: { file: PreviewFile }) {
   if (failed) return <DownloadCard file={file} reason="Aperçu PDF indisponible" />;
 
   return (
-    <div ref={containerRef} className="h-full w-full overflow-auto px-4 py-4">
+    <div ref={containerRef} className="h-full w-full overflow-auto px-2 py-3 sm:px-4 sm:py-4">
       <Document
         file={fileProp}
         onLoadSuccess={(pdf) => setNumPages(pdf.numPages)}

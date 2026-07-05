@@ -1,8 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, Clapperboard, CloudUpload, ArrowUpDown, Check } from "lucide-react";
+import {
+  Search,
+  Clapperboard,
+  CloudUpload,
+  ArrowUpDown,
+  Check,
+  History,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import { buttonClass } from "@/components/ui/button";
@@ -15,6 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { VideoItem } from "./types";
 import { VideoCard } from "./video-card";
+import { getAllProgress } from "./progress";
 
 type FilterKey = "all" | "mine" | "shared" | "starred";
 type SortKey = "recent" | "oldest" | "name" | "size";
@@ -22,7 +30,7 @@ type SortKey = "recent" | "oldest" | "name" | "size";
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "all", label: "Toutes" },
   { key: "mine", label: "Mes vidéos" },
-  { key: "shared", label: "Partagées avec moi" },
+  { key: "shared", label: "Partagées" },
   { key: "starred", label: "Favoris" },
 ];
 
@@ -60,10 +68,26 @@ function sortVideos(list: VideoItem[], sort: SortKey): VideoItem[] {
   }
 }
 
+// Hide the scrollbar on the horizontal shelves (chips + continue-watching).
+const HIDE_SCROLLBAR = "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+
 export function VideoHub({ videos }: { videos: VideoItem[] }) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [sort, setSort] = useState<SortKey>("recent");
+  const [resumeIds, setResumeIds] = useState<string[]>([]);
+
+  const byId = useMemo(() => new Map(videos.map((v) => [v.id, v])), [videos]);
+
+  // "Continuer à regarder" is client-only (localStorage) → compute after mount.
+  useEffect(() => {
+    const all = getAllProgress();
+    const ids = Object.entries(all)
+      .sort((a, b) => b[1].at - a[1].at)
+      .map(([id]) => id)
+      .filter((id) => byId.has(id));
+    setResumeIds(ids);
+  }, [byId]);
 
   const results = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -77,21 +101,27 @@ export function VideoHub({ videos }: { videos: VideoItem[] }) {
     return sortVideos(filtered, sort);
   }, [videos, q, filter, sort]);
 
+  const continueWatching = useMemo(
+    () => resumeIds.map((id) => byId.get(id)).filter((v): v is VideoItem => Boolean(v)).slice(0, 12),
+    [resumeIds, byId],
+  );
+
+  const showShelf = filter === "all" && q.trim() === "" && continueWatching.length > 0;
   const sortLabel = SORTS.find((s) => s.key === sort)?.label ?? "";
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Title + search */}
-      <div className="flex flex-col gap-4">
+      {/* Header: title + search */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2.5">
-          <Clapperboard size={26} className="text-accent" aria-hidden />
-          <h1 className="font-display text-2xl font-semibold text-text-hi">Vidéos</h1>
+          <Clapperboard size={24} className="text-accent sm:size-7" aria-hidden />
+          <h1 className="font-display text-2xl font-semibold text-text-hi sm:text-3xl">Vidéos</h1>
           <span className="tabular ml-1 rounded-full bg-glass px-2.5 py-0.5 text-xs text-text-lo">
             {videos.length}
           </span>
         </div>
 
-        <div className="relative w-full max-w-xl">
+        <div className="relative w-full sm:max-w-sm">
           <Search
             size={18}
             className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-text-faint"
@@ -107,30 +137,35 @@ export function VideoHub({ videos }: { videos: VideoItem[] }) {
         </div>
       </div>
 
-      {/* Filter chips + sort */}
-      <div className="flex flex-wrap items-center gap-2">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setFilter(f.key)}
-            aria-pressed={filter === f.key}
-            className={cn(
-              "rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
-              filter === f.key
-                ? "bg-text-hi text-bg-0"
-                : "glass text-text-lo hover:text-text-hi",
-            )}
-          >
-            {f.label}
-          </button>
-        ))}
+      {/* Category chips (scroll on mobile) + sort */}
+      <div className="flex items-center gap-2">
+        <div className={cn("flex flex-1 gap-2 overflow-x-auto pb-1", HIDE_SCROLLBAR)}>
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              aria-pressed={filter === f.key}
+              className={cn(
+                "shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors",
+                filter === f.key
+                  ? "bg-text-hi text-bg-0"
+                  : "glass text-text-lo hover:text-text-hi",
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
 
-        <div className="ml-auto">
+        <div className="shrink-0">
           <DropdownMenu>
             <DropdownTrigger asChild>
-              <button className={buttonClass({ variant: "secondary", size: "sm" })}>
+              <button
+                className={buttonClass({ variant: "secondary", size: "sm" })}
+                aria-label="Trier"
+              >
                 <ArrowUpDown size={15} aria-hidden />
-                <span className="hidden sm:inline">{sortLabel}</span>
+                <span className="hidden md:inline">{sortLabel}</span>
               </button>
             </DropdownTrigger>
             <DropdownContent align="end" className="min-w-48">
@@ -149,7 +184,23 @@ export function VideoHub({ videos }: { videos: VideoItem[] }) {
         </div>
       </div>
 
-      {/* Grid / empty states */}
+      {/* Continue watching shelf */}
+      {showShelf && (
+        <section className="flex flex-col gap-3">
+          <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-text-hi">
+            <History size={18} className="text-tan" aria-hidden /> Continuer à regarder
+          </h2>
+          <div className={cn("-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0", HIDE_SCROLLBAR)}>
+            {continueWatching.map((v) => (
+              <div key={v.id} className="w-64 shrink-0 snap-start sm:w-72">
+                <VideoCard video={v} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Main library */}
       {videos.length === 0 ? (
         <EmptyState
           icon={Clapperboard}
@@ -168,11 +219,16 @@ export function VideoHub({ videos }: { videos: VideoItem[] }) {
           description={q.trim() ? `Rien ne correspond à « ${q.trim()} ».` : "Aucune vidéo dans ce filtre."}
         />
       ) : (
-        <div className="grid grid-cols-1 gap-x-4 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {results.map((v) => (
-            <VideoCard key={v.id} video={v} />
-          ))}
-        </div>
+        <section className="flex flex-col gap-3">
+          {showShelf && (
+            <h2 className="font-display text-lg font-semibold text-text-hi">Toutes les vidéos</h2>
+          )}
+          <div className="grid grid-cols-1 gap-x-4 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            {results.map((v) => (
+              <VideoCard key={v.id} video={v} />
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

@@ -9,7 +9,7 @@ export default async function ChangePasswordPage() {
   const user = await requireUser();
 
   return (
-    <GlassCard strong sheen className="p-7 sm:p-9">
+    <GlassCard strong sheen className="p-6 sm:p-9">
       <ChangePasswordForm mustChange={user.mustChangePw} />
     </GlassCard>
   );

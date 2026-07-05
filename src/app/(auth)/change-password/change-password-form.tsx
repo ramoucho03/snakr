@@ -107,7 +107,7 @@ export function ChangePasswordForm({ mustChange }: { mustChange?: boolean }) {
           variant="primary"
           size="lg"
           loading={pending}
-          className="mt-1 w-full"
+          className="mt-1 w-full text-sm sm:text-base"
         >
           Mettre à jour le mot de passe
         </Button>

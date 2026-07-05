@@ -45,7 +45,7 @@ export default function DocxViewer({ file }: { file: PreviewFile }) {
   }
 
   return (
-    <div className="h-full overflow-auto p-4">
+    <div className="h-full overflow-auto p-2 sm:p-4">
       {status === "loading" && (
         <div className="grid h-40 place-items-center gap-2 text-text-lo">
           <Spinner />

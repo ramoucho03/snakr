@@ -44,11 +44,11 @@ export function DownloadCard({
 }) {
   const Icon = ICONS[file.kind] ?? File;
   return (
-    <div className="grid h-full w-full place-items-center p-6">
+    <div className="grid h-full w-full place-items-center p-4 sm:p-6">
       <GlassCard
         strong
         sheen
-        className="flex w-full max-w-md flex-col items-center gap-4 p-8 text-center"
+        className="flex w-full max-w-md flex-col items-center gap-4 p-6 text-center sm:p-8"
       >
         <div className="glass grid h-20 w-20 place-items-center rounded-2xl">
           <Icon size={36} className="text-accent" aria-hidden />

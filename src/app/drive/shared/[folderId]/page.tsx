@@ -37,7 +37,7 @@ export default async function SharedFolderPage({
         >
           <ArrowLeft size={15} /> Partagés avec moi
         </Link>
-        <h1 className="mt-2 font-display text-2xl font-semibold text-text-hi">{contents.name}</h1>
+        <h1 className="mt-2 wrap-break-word font-display text-2xl font-semibold text-text-hi">{contents.name}</h1>
         <p className="text-sm text-text-lo">Consultation en lecture seule.</p>
       </div>
 

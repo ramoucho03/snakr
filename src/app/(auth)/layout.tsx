@@ -24,7 +24,7 @@ export default function AuthLayout({
         <ThemeToggle />
       </header>
 
-      <main className="flex flex-1 items-center justify-center px-4 pb-16 pt-4">
+      <main className="flex flex-1 items-center justify-center px-4 pb-16 pt-4 sm:px-6">
         <div className="w-full max-w-md">{children}</div>
       </main>
     </div>

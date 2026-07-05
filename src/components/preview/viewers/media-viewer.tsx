@@ -29,8 +29,8 @@ export default function MediaViewer({
 
   if (kind === "audio") {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-6 p-6">
-        <div className="glass glass-sheen grid h-28 w-28 place-items-center rounded-full">
+      <div className="flex h-full w-full flex-col items-center justify-center gap-4 p-4 sm:gap-6 sm:p-6">
+        <div className="glass glass-sheen grid h-24 w-24 place-items-center rounded-full sm:h-28 sm:w-28">
           <Music size={48} className="text-accent" aria-hidden />
         </div>
         <p className="font-display max-w-[90%] truncate text-lg text-text-hi">
@@ -47,7 +47,7 @@ export default function MediaViewer({
   }
 
   return (
-    <div className="flex h-full w-full items-center justify-center p-4">
+    <div className="flex h-full w-full items-center justify-center p-2 sm:p-4">
       <video
         src={src}
         controls

@@ -23,7 +23,7 @@ export default function ImageViewer({ file }: { file: PreviewFile }) {
   return (
     <div
       className={cn(
-        "relative flex h-full w-full items-center justify-center overflow-auto p-4",
+        "relative flex h-full w-full items-center justify-center overflow-auto p-2 sm:p-4",
         zoom ? "cursor-zoom-out" : "cursor-zoom-in",
       )}
     >

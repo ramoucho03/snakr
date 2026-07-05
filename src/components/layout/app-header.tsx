@@ -26,7 +26,7 @@ export function AppHeader({
     <header className="sticky top-0 z-30 border-b border-glass-border bg-bg-0/70 backdrop-blur-xl">
       <div
         className={cn(
-          "mx-auto flex w-full items-center justify-between gap-3 px-4 py-2.5",
+          "mx-auto flex w-full items-center justify-between gap-3 px-4 py-2.5 sm:px-6",
           wide ? "max-w-[110rem]" : "max-w-6xl",
         )}
       >
@@ -36,7 +36,7 @@ export function AppHeader({
           </Link>
           <NavLinks />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <StorageMeter used={used} limit={limit} />
           <ThemeToggle />
           <UserMenu user={user} />

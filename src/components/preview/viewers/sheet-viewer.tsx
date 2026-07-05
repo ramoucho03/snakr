@@ -107,7 +107,7 @@ export default function SheetViewer({ file }: { file: PreviewFile }) {
 
   const [header, ...body] = state.rows;
   return (
-    <div className="h-full overflow-auto p-4">
+    <div className="h-full overflow-auto p-2 sm:p-4">
       <table className="w-full border-collapse text-sm">
         {header && (
           <thead className="sticky top-0">

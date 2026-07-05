@@ -44,6 +44,13 @@ export function DriveView({
   const [q, setQ] = useState("");
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  // Once opened, the uploader stays MOUNTED (just hidden on close) so closing
+  // the dialog never tears down Uppy and its in-flight tus uploads.
+  const [uploadMounted, setUploadMounted] = useState(false);
+  const openUpload = () => {
+    setUploadMounted(true);
+    setUploadOpen(true);
+  };
   const [renameItem, setRenameItem] = useState<TargetItem | null>(null);
   const [moveItem, setMoveItem] = useState<TargetItem | null>(null);
   const [shareItem, setShareItem] = useState<TargetItem | null>(null);
@@ -115,7 +122,7 @@ export function DriveView({
           <Button variant="secondary" onClick={() => setNewFolderOpen(true)}>
             <FolderPlus size={16} /> <span className="hidden sm:inline">Nouveau dossier</span>
           </Button>
-          <Button onClick={() => setUploadOpen(true)}>
+          <Button onClick={openUpload}>
             <CloudUpload size={16} /> Importer
           </Button>
         </div>
@@ -127,7 +134,7 @@ export function DriveView({
           title="Ce dossier est vide"
           description="Importez des fichiers ou créez un dossier pour commencer."
           action={
-            <Button onClick={() => setUploadOpen(true)}>
+            <Button onClick={openUpload}>
               <CloudUpload size={16} /> Importer des fichiers
             </Button>
           }
@@ -142,7 +149,7 @@ export function DriveView({
       <RenameDialog item={renameItem} open={!!renameItem} onOpenChange={(o) => !o && setRenameItem(null)} />
       <MoveDialog item={moveItem} open={!!moveItem} onOpenChange={(o) => !o && setMoveItem(null)} />
       <ShareDialog item={shareItem} open={!!shareItem} onOpenChange={(o) => !o && setShareItem(null)} />
-      {uploadOpen && (
+      {uploadMounted && (
         <UploadDialog folderId={folderId} open={uploadOpen} onOpenChange={setUploadOpen} />
       )}
       <PreviewModal file={preview} onClose={() => setPreview(null)} />

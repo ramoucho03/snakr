@@ -14,7 +14,7 @@ export default async function LoginPage(props: {
   const { next } = await props.searchParams;
 
   return (
-    <GlassCard strong sheen className="p-7 sm:p-9">
+    <GlassCard strong sheen className="p-6 sm:p-9">
       <LoginForm next={next} />
     </GlassCard>
   );

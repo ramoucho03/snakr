@@ -349,7 +349,7 @@ function AccessPanel({ item, open }: { item: TargetItem | null; open: boolean })
     <div className="flex flex-col gap-4">
       <form onSubmit={submit} className="flex flex-col gap-2">
         <Field label="Inviter un membre par e-mail">
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Input
               type="email"
               value={email}
@@ -361,7 +361,7 @@ function AccessPanel({ item, open }: { item: TargetItem | null; open: boolean })
             <select
               value={level}
               onChange={(e) => setLevel(e.target.value as "READ" | "WRITE")}
-              className="rounded-lg border border-glass-border bg-glass px-2.5 text-sm text-text-hi outline-none focus:border-accent/70"
+              className="min-h-10 rounded-lg border border-glass-border bg-glass px-2.5 text-sm text-text-hi outline-none focus:border-accent/70 sm:min-h-0"
               aria-label="Niveau d'accès"
             >
               <option value="READ">Lecture</option>
@@ -515,7 +515,7 @@ export function ShareDialog({
                 autoComplete="new-password"
               />
             </Field>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Expiration">
                 <select
                   value={expiry}

@@ -122,7 +122,7 @@ export function FeatureGrid() {
                 <h3 className="font-display text-lg font-semibold tracking-[-0.01em] text-text-hi">
                   {f.title}
                 </h3>
-                <p className="text-sm leading-relaxed text-text-lo">{f.body}</p>
+                <p className="text-sm leading-relaxed text-text-lo wrap-break-word">{f.body}</p>
               </GlassCard>
             </motion.li>
           );

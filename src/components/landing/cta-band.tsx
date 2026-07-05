@@ -44,11 +44,15 @@ export function CtaBand({ authed }: { authed: boolean }) {
           Déployez Snak&apos;r sur votre serveur en quelques minutes. Vos données,
           votre infrastructure, vos règles.
         </p>
-        <div className="mt-1 flex flex-col items-center gap-3 sm:flex-row">
+        <div className="mt-1 flex w-full max-w-md flex-col items-center gap-3 sm:w-auto sm:max-w-none sm:flex-row">
           {authed ? (
             <Link
               href="/drive"
-              className={buttonClass({ variant: "primary", size: "lg" })}
+              className={buttonClass({
+                variant: "primary",
+                size: "lg",
+                className: "w-full sm:w-auto",
+              })}
             >
               Ouvrir mon drive
               <ArrowRight size={18} aria-hidden />
@@ -57,14 +61,22 @@ export function CtaBand({ authed }: { authed: boolean }) {
             <>
               <Link
                 href="/register"
-                className={buttonClass({ variant: "primary", size: "lg" })}
+                className={buttonClass({
+                  variant: "primary",
+                  size: "lg",
+                  className: "w-full sm:w-auto",
+                })}
               >
                 Créer mon espace
                 <ArrowRight size={18} aria-hidden />
               </Link>
               <Link
                 href="/login"
-                className={buttonClass({ variant: "secondary", size: "lg" })}
+                className={buttonClass({
+                  variant: "secondary",
+                  size: "lg",
+                  className: "w-full sm:w-auto",
+                })}
               >
                 Se connecter
               </Link>

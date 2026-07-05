@@ -110,7 +110,7 @@ export function SharedGrid({
                 <DropdownMenu>
                   <DropdownTrigger asChild>
                     <button
-                      className="grid h-8 w-8 place-items-center rounded-full bg-bg-0/50 text-text-lo opacity-0 backdrop-blur transition-all hover:text-text-hi group-hover:opacity-100 data-[state=open]:opacity-100"
+                      className="grid h-10 w-10 place-items-center rounded-full bg-bg-0/50 text-text-lo opacity-100 backdrop-blur transition-all hover:text-text-hi data-[state=open]:opacity-100 sm:h-8 sm:w-8 sm:opacity-0 sm:group-hover:opacity-100"
                       aria-label="Actions"
                     >
                       <MoreVertical size={16} />

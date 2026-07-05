@@ -14,7 +14,7 @@ export default async function RegisterPage() {
 
   if (!(await isRegistrationOpen())) {
     return (
-      <GlassCard strong className="flex flex-col gap-6 p-7 sm:p-9">
+      <GlassCard strong className="flex flex-col gap-6 p-6 sm:p-9">
         <header className="flex flex-col gap-1.5">
           <h1 className="font-display text-2xl font-semibold tracking-tight text-text-hi">
             Inscriptions <span className="brand-text">fermées</span>
@@ -40,7 +40,7 @@ export default async function RegisterPage() {
   }
 
   return (
-    <GlassCard strong sheen className="p-7 sm:p-9">
+    <GlassCard strong sheen className="p-6 sm:p-9">
       <RegisterForm />
     </GlassCard>
   );

@@ -54,9 +54,9 @@ export function UsersTable({
             <tr className="border-b border-glass-border text-left text-xs uppercase tracking-wide text-text-faint">
               <th className="px-4 py-3 font-medium">Utilisateur</th>
               <th className="px-4 py-3 font-medium">Rôle</th>
-              <th className="px-4 py-3 font-medium">Fichiers</th>
-              <th className="px-4 py-3 font-medium">Stockage</th>
-              <th className="px-4 py-3 font-medium">Inscrit</th>
+              <th className="hidden px-4 py-3 font-medium lg:table-cell">Fichiers</th>
+              <th className="hidden px-4 py-3 font-medium sm:table-cell">Stockage</th>
+              <th className="hidden px-4 py-3 font-medium md:table-cell">Inscrit</th>
               <th className="px-4 py-3 font-medium">Statut</th>
               <th className="px-4 py-3 font-medium sr-only">Actions</th>
             </tr>
@@ -129,7 +129,7 @@ function UserRow({ u, currentAdminId }: { u: AdminUserRow; currentAdminId: strin
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-glass text-xs font-semibold text-text-lo">
             {initials(u.displayName ?? u.email)}
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 max-w-50 sm:max-w-none">
             <p className="truncate font-medium text-text-hi">{u.displayName ?? "—"}</p>
             <p className="truncate text-xs text-text-faint">{u.email}</p>
           </div>
@@ -145,10 +145,10 @@ function UserRow({ u, currentAdminId }: { u: AdminUserRow; currentAdminId: strin
       </td>
 
       {/* Files */}
-      <td className="px-4 py-3 tabular-nums text-text-lo">{u.fileCount}</td>
+      <td className="hidden px-4 py-3 tabular-nums text-text-lo lg:table-cell">{u.fileCount}</td>
 
       {/* Storage */}
-      <td className="px-4 py-3 whitespace-nowrap text-text-lo">
+      <td className="hidden px-4 py-3 whitespace-nowrap text-text-lo sm:table-cell">
         <span className="text-text-hi">{formatBytes(u.storageUsed)}</span>
         <span className="text-text-faint">
           {" / "}
@@ -157,7 +157,7 @@ function UserRow({ u, currentAdminId }: { u: AdminUserRow; currentAdminId: strin
       </td>
 
       {/* Registered */}
-      <td className="px-4 py-3 whitespace-nowrap text-text-lo">{formatRelative(u.createdAt)}</td>
+      <td className="hidden px-4 py-3 whitespace-nowrap text-text-lo md:table-cell">{formatRelative(u.createdAt)}</td>
 
       {/* Status */}
       <td className="px-4 py-3">
@@ -175,7 +175,7 @@ function UserRow({ u, currentAdminId }: { u: AdminUserRow; currentAdminId: strin
               type="button"
               disabled={pending}
               aria-label="Actions"
-              className="grid h-8 w-8 place-items-center rounded-lg text-text-faint transition-colors hover:bg-glass hover:text-text-hi disabled:opacity-40"
+              className="grid h-9 w-9 place-items-center rounded-lg text-text-faint transition-colors hover:bg-glass hover:text-text-hi disabled:opacity-40"
             >
               <MoreHorizontal size={16} />
             </button>

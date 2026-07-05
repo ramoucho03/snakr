@@ -75,13 +75,17 @@ export function PreviewModal({
                 <a
                   href={`/api/files/${file.id}?dl=1`}
                   download
-                  className={buttonClass({ variant: "secondary", size: "sm" })}
+                  className={buttonClass({
+                    variant: "secondary",
+                    size: "sm",
+                    className: "h-10 min-w-10 justify-center sm:h-8 sm:min-w-0",
+                  })}
                 >
                   <Download size={15} aria-hidden />
                   <span className="hidden sm:inline">Télécharger</span>
                 </a>
                 <Dialog.Close
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-text-faint transition-colors hover:bg-glass hover:text-text-hi"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-text-faint transition-colors hover:bg-glass hover:text-text-hi sm:h-9 sm:w-9"
                   aria-label="Fermer"
                 >
                   <X size={18} />
