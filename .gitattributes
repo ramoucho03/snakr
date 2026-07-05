@@ -1,0 +1,8 @@
+# Normalize line endings. Critical for the Alpine entrypoint: a CRLF shebang
+# ("#!/bin/sh\r") makes the container die at startup, and Windows checkouts with
+# core.autocrlf=true would otherwise convert these on clone.
+* text=auto eol=lf
+*.sh text eol=lf
+docker-entrypoint.sh text eol=lf
+Dockerfile text eol=lf
+Caddyfile text eol=lf

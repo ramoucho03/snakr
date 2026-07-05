@@ -16,7 +16,7 @@ services:
     healthcheck:
       # Doubled $$ so compose passes the literal $POSTGRES_* to the shell inside
       # the container (not interpolated at compose-parse time).
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -30,6 +30,8 @@ services:
       # the `postgres` service host, not localhost.
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
       STORAGE_ROOT: /data/uploads
+      # Alpine's musl ffmpeg (installed in the image) — video poster frames.
+      FFMPEG_PATH: /usr/bin/ffmpeg
     depends_on:
       postgres:
         # Waits for Postgres to accept connections, not just for the container to start.
@@ -37,7 +39,9 @@ services:
     volumes:
       - uploads:/data
     ports:
-      - "3000:3000"
+      # Bound to loopback: public traffic goes through Caddy (TLS) on 80/443.
+      # Change to "3000:3000" only if you want to reach the app directly.
+      - "127.0.0.1:3000:3000"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
       interval: 30s

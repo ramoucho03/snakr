@@ -70,7 +70,11 @@ export default function SheetViewer({ file }: { file: PreviewFile }) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/files/${file.id}`);
+        // Cap the bytes we buffer (output rows are capped separately) so a huge
+        // CSV can't spike memory; the route answers this Range with a 206 slice.
+        const res = await fetch(`/api/files/${file.id}`, {
+          headers: { Range: "bytes=0-4194303" },
+        });
         if (!res.ok && res.status !== 206) throw new Error(String(res.status));
         const text = await res.text();
         const rows = parseDelimited(text, ext === "tsv" ? "\t" : ",");

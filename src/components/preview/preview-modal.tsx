@@ -89,9 +89,10 @@ export function PreviewModal({
               </div>
             </div>
 
-            {/* Body — the dispatched viewer */}
+            {/* Body — the dispatched viewer. `key` remounts on file change so no
+                per-file viewer state (zoom, load error, page count) leaks across. */}
             <div className="relative min-h-0 flex-1 overflow-hidden">
-              <PreviewRouter file={file} />
+              <PreviewRouter key={file.id} file={file} />
             </div>
           </motion.div>
         </Dialog.Content>

@@ -40,9 +40,11 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1
 
 # openssl -> Prisma query engine ; tini -> PID 1 signal reaping ;
-# su-exec -> drop privileges after chowning the volume.
+# su-exec -> drop privileges after chowning the volume ; ffmpeg -> video poster
+# frames (the bundled ffmpeg-static is glibc-linked and can't exec on musl, so we
+# use Alpine's musl ffmpeg and point FFMPEG_PATH at it in compose).
 # NO libc6-compat: it pulls glibc and breaks Prisma's musl engine on alpine.
-RUN apk add --no-cache openssl tini su-exec
+RUN apk add --no-cache openssl tini su-exec ffmpeg
 
 # Dedicated non-root runtime identity.
 RUN addgroup -g 1001 nodejs && adduser -u 1001 -G nodejs -S nextjs
@@ -80,7 +82,10 @@ RUN mkdir -p /data/uploads && chown -R nextjs:nodejs /data
 
 # Entrypoint drops privileges itself, so it (and CMD) start as root to chown /data.
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Strip any CR (belt-and-suspenders vs .gitattributes): a CRLF shebang makes the
+# Alpine container die with "no such file or directory" on PID 1.
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
+ && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3000
 

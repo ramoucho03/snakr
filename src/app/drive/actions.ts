@@ -14,10 +14,18 @@ import {
 } from "@/lib/files";
 import { createShare, revokeShare } from "@/lib/share";
 import {
+  grantPermission,
+  revokePermission,
+  getPermissionResource,
+  listResourceGrants,
+  type ResourceGrant,
+} from "@/lib/permissions";
+import {
   createFolderSchema,
   renameSchema,
   moveSchema,
   createShareSchema,
+  grantAccessSchema,
   fieldErrors,
 } from "@/lib/validation";
 import { serverEnv } from "@/lib/env";
@@ -162,6 +170,66 @@ export async function createShareAction(input: {
     return { ok: true, token, url: `${origin.replace(/\/$/, "")}/s/${token}` };
   } catch (err) {
     return fail((err as Error).message || "Partage impossible");
+  }
+}
+
+// ── Internal (member) sharing ────────────────────────────────────────────────
+
+export async function grantAccessAction(input: {
+  resourceType: "FILE" | "FOLDER";
+  resourceId: string;
+  email: string;
+  level: "READ" | "WRITE";
+}): Promise<Ok<{ grants: ResourceGrant[] }> | Fail> {
+  try {
+    const user = await requireUser();
+    const parsed = grantAccessSchema.safeParse(input);
+    if (!parsed.success) return fail("Entrée invalide", fieldErrors(parsed.error));
+    // Only the owner (or admin) may grant access to a resource.
+    await requireOwner(parsed.data.resourceType, parsed.data.resourceId);
+    await grantPermission({
+      resourceType: parsed.data.resourceType,
+      resourceId: parsed.data.resourceId,
+      granteeEmail: parsed.data.email,
+      level: parsed.data.level,
+      grantedById: user.id,
+    });
+    const grants = await listResourceGrants(parsed.data.resourceType, parsed.data.resourceId);
+    revalidatePath("/drive/shared");
+    return { ok: true, grants };
+  } catch (err) {
+    return fail((err as Error).message || "Partage impossible");
+  }
+}
+
+export async function listGrantsAction(input: {
+  resourceType: "FILE" | "FOLDER";
+  resourceId: string;
+}): Promise<Ok<{ grants: ResourceGrant[] }> | Fail> {
+  try {
+    await requireOwner(input.resourceType, input.resourceId);
+    const grants = await listResourceGrants(input.resourceType, input.resourceId);
+    return { ok: true, grants };
+  } catch (err) {
+    return fail((err as Error).message || "Chargement impossible");
+  }
+}
+
+export async function revokeAccessAction(input: {
+  permissionId: string;
+}): Promise<Ok<{ grants: ResourceGrant[] }> | Fail> {
+  try {
+    await requireUser();
+    const resource = await getPermissionResource(input.permissionId);
+    if (!resource) return fail("Autorisation introuvable");
+    // The resource owner (or admin) controls its grants.
+    await requireOwner(resource.resourceType, resource.resourceId);
+    await revokePermission(input.permissionId);
+    const grants = await listResourceGrants(resource.resourceType, resource.resourceId);
+    revalidatePath("/drive/shared");
+    return { ok: true, grants };
+  } catch (err) {
+    return fail((err as Error).message || "Révocation impossible");
   }
 }
 

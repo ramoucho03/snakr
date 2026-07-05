@@ -80,6 +80,14 @@ export const createShareSchema = z.object({
 });
 export type CreateShareInput = z.infer<typeof createShareSchema>;
 
+export const grantAccessSchema = z.object({
+  resourceType: z.enum(["FILE", "FOLDER"]),
+  resourceId: z.string().cuid(),
+  email,
+  level: z.enum(["READ", "WRITE"]),
+});
+export type GrantAccessInput = z.infer<typeof grantAccessSchema>;
+
 export const unlockShareSchema = z.object({
   token: z.string().min(10).max(200),
   password: z.string().min(1).max(200),

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { LogOut, Shield, KeyRound, Share2, User } from "lucide-react";
+import { LogOut, Shield, KeyRound, Share2, User, Users } from "lucide-react";
 import {
   DropdownMenu,
   DropdownTrigger,
@@ -42,6 +42,9 @@ export function UserMenu({ user }: { user: UserMenuUser }) {
         <DropdownSeparator />
         <DropdownItem onSelect={go("/drive")}>
           <User size={16} /> Mon drive
+        </DropdownItem>
+        <DropdownItem onSelect={go("/drive/shared")}>
+          <Users size={16} /> Partagés avec moi
         </DropdownItem>
         <DropdownItem onSelect={go("/drive/shares")}>
           <Share2 size={16} /> Mes partages

@@ -2,12 +2,14 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Check, FolderInput, Home } from "lucide-react";
+import * as Tabs from "@radix-ui/react-tabs";
+import { Copy, Check, FolderInput, Home, UserPlus, Trash2, Link as LinkIcon } from "lucide-react";
 import { Modal, ModalContent, ModalClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Field } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
+import { cn, initials } from "@/lib/utils";
 import type { TargetItem } from "./types";
 import {
   createFolderAction,
@@ -15,8 +17,12 @@ import {
   moveAction,
   createShareAction,
   moveTargetsAction,
+  grantAccessAction,
+  listGrantsAction,
+  revokeAccessAction,
   type MoveTarget,
 } from "@/app/drive/actions";
+import type { ResourceGrant } from "@/lib/permissions";
 
 function Footer({ pending, submitLabel }: { pending: boolean; submitLabel: string }) {
   return (
@@ -264,6 +270,149 @@ function DestRow({
   );
 }
 
+function TabTrigger({
+  value,
+  icon,
+  children,
+}: {
+  value: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tabs.Trigger
+      value={value}
+      className={cn(
+        "flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-text-lo transition-colors outline-none",
+        "data-[state=active]:bg-bg-1 data-[state=active]:text-text-hi",
+      )}
+    >
+      {icon}
+      {children}
+    </Tabs.Trigger>
+  );
+}
+
+/** Internal (member-to-member) access management for a file or folder. */
+function AccessPanel({ item, open }: { item: TargetItem | null; open: boolean }) {
+  const [email, setEmail] = useState("");
+  const [level, setLevel] = useState<"READ" | "WRITE">("READ");
+  const [grants, setGrants] = useState<ResourceGrant[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [pending, start] = useTransition();
+
+  useEffect(() => {
+    if (!open || !item) return;
+    setEmail("");
+    setLevel("READ");
+    setLoading(true);
+    listGrantsAction({ resourceType: item.type, resourceId: item.id })
+      .then((r) => {
+        if (r.ok) setGrants(r.grants);
+      })
+      .finally(() => setLoading(false));
+  }, [open, item]);
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!item) return;
+    start(async () => {
+      const r = await grantAccessAction({
+        resourceType: item.type,
+        resourceId: item.id,
+        email,
+        level,
+      });
+      if (r.ok) {
+        setGrants(r.grants);
+        setEmail("");
+        toast.success("Accès accordé");
+      } else {
+        toast.error(r.error);
+      }
+    });
+  }
+
+  function revoke(permissionId: string) {
+    start(async () => {
+      const r = await revokeAccessAction({ permissionId });
+      if (r.ok) {
+        setGrants(r.grants);
+        toast.success("Accès retiré");
+      } else {
+        toast.error(r.error);
+      }
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <form onSubmit={submit} className="flex flex-col gap-2">
+        <Field label="Inviter un membre par e-mail">
+          <div className="flex gap-2">
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="membre@exemple.fr"
+              autoComplete="off"
+              className="flex-1"
+            />
+            <select
+              value={level}
+              onChange={(e) => setLevel(e.target.value as "READ" | "WRITE")}
+              className="rounded-lg border border-glass-border bg-glass px-2.5 text-sm text-text-hi outline-none focus:border-accent/70"
+              aria-label="Niveau d'accès"
+            >
+              <option value="READ">Lecture</option>
+              <option value="WRITE">Écriture</option>
+            </select>
+          </div>
+        </Field>
+        <Button type="submit" loading={pending} className="self-end">
+          <UserPlus size={16} /> Partager
+        </Button>
+      </form>
+
+      <div className="flex flex-col gap-1.5">
+        <p className="text-xs font-medium text-text-faint">Accès actuels</p>
+        {loading ? (
+          <div className="flex justify-center py-3">
+            <Spinner />
+          </div>
+        ) : grants.length === 0 ? (
+          <p className="py-2 text-sm text-text-faint">Aucun membre pour l'instant.</p>
+        ) : (
+          grants.map((g) => (
+            <div key={g.id} className="flex items-center gap-2.5 rounded-lg bg-glass px-2.5 py-2">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-bg-1 text-xs font-semibold text-text-hi">
+                {initials(g.user.displayName ?? g.user.email)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm text-text-hi">
+                  {g.user.displayName ?? g.user.email}
+                </p>
+                <p className="text-xs text-text-faint">
+                  {g.level === "WRITE" ? "Écriture" : "Lecture"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => revoke(g.id)}
+                disabled={pending}
+                aria-label="Retirer l'accès"
+                className="rounded-md p-1.5 text-text-faint transition-colors hover:bg-danger/10 hover:text-danger"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Share ──────────────────────────────────────────────────────────────────
 export function ShareDialog({
   item,
@@ -327,11 +476,18 @@ export function ShareDialog({
 
   return (
     <Modal open={open} onOpenChange={onOpenChange}>
-      <ModalContent
-        title="Partager par lien"
-        description={item ? `« ${item.name} »` : undefined}
-      >
-        {link ? (
+      <ModalContent title="Partager" description={item ? `« ${item.name} »` : undefined}>
+        <Tabs.Root defaultValue="link" className="mt-1">
+          <Tabs.List className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-glass p-1">
+            <TabTrigger value="link" icon={<LinkIcon size={14} />}>
+              Lien public
+            </TabTrigger>
+            <TabTrigger value="members" icon={<UserPlus size={14} />}>
+              Membres
+            </TabTrigger>
+          </Tabs.List>
+          <Tabs.Content value="link" className="outline-none">
+            {link ? (
           <div className="mt-2 flex flex-col gap-3">
             <p className="text-sm text-text-lo">
               Copiez ce lien maintenant — il ne sera plus jamais affiché.
@@ -402,7 +558,12 @@ export function ShareDialog({
               </Button>
             </div>
           </form>
-        )}
+            )}
+          </Tabs.Content>
+          <Tabs.Content value="members" className="outline-none">
+            <AccessPanel item={item} open={open} />
+          </Tabs.Content>
+        </Tabs.Root>
       </ModalContent>
     </Modal>
   );
