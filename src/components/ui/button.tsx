@@ -14,7 +14,7 @@ export type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary:
-    "bg-accent text-[var(--accent-contrast)] shadow-[0_8px_24px_-8px_var(--accent)] hover:brightness-110 active:brightness-95",
+    "bg-accent text-[var(--accent-contrast)] shadow-[0_8px_24px_-10px_var(--accent)] hover:-translate-y-px hover:shadow-[0_14px_34px_-10px_var(--accent)] hover:brightness-105 active:translate-y-0 active:brightness-95",
   secondary:
     "glass text-text-hi hover:text-text-hi hover:brightness-125",
   ghost: "text-text-lo hover:text-text-hi hover:bg-glass",

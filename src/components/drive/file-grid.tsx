@@ -114,12 +114,12 @@ function FolderCard({
       <button
         onClick={() => callbacks.onOpenFolder(folder.id)}
         onDoubleClick={() => callbacks.onOpenFolder(folder.id)}
-        className="glass flex w-full flex-col gap-3 rounded-xl p-3.5 text-left transition-transform hover:-translate-y-0.5 hover:brightness-110"
+        className="glass flex w-full flex-col gap-3 rounded-xl p-3.5 text-left transition-all duration-200 hover:-translate-y-1 hover:border-tan/25 hover:brightness-105 hover:shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)]"
       >
-        <div className="flex h-20 items-center justify-center">
+        <div className="flex h-20 items-center justify-center rounded-lg bg-linear-to-br from-bg-1/50 to-transparent ring-1 ring-inset ring-glass-border/60 transition-transform duration-200 group-hover:scale-[1.03]">
           <Folder
-            size={44}
-            className={cn("drop-shadow", !folder.color && "text-accent")}
+            size={42}
+            className={cn("drop-shadow", !folder.color && "text-tan")}
             style={folder.color ? { color: folder.color } : undefined}
             aria-hidden
           />
@@ -170,9 +170,9 @@ function FileCard({
     <motion.div variants={reduce ? undefined : item} className="group relative">
       <button
         onClick={() => callbacks.onPreview(file)}
-        className="glass flex w-full flex-col gap-3 rounded-xl p-3.5 text-left transition-transform hover:-translate-y-0.5 hover:brightness-110"
+        className="glass flex w-full flex-col gap-3 rounded-xl p-3.5 text-left transition-all duration-200 hover:-translate-y-1 hover:border-tan/25 hover:brightness-105 hover:shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)]"
       >
-        <div className="relative flex h-20 items-center justify-center overflow-hidden rounded-lg bg-bg-1/60">
+        <div className="relative flex h-20 items-center justify-center overflow-hidden rounded-lg bg-bg-1/60 ring-1 ring-inset ring-glass-border/60">
           {showThumb ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -180,10 +180,10 @@ function FileCard({
               alt=""
               loading="lazy"
               onError={() => setImgFailed(true)}
-              className="h-full w-full object-cover"
+              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
             />
           ) : (
-            <TypeIcon kind={file.kind} size={34} />
+            <TypeIcon kind={file.kind} size={34} className="transition-transform duration-200 group-hover:scale-110" />
           )}
         </div>
         <div className="min-w-0">

@@ -34,10 +34,13 @@ RUN npx prisma generate && npm run build
 ##############################
 FROM node:22-alpine AS runner
 WORKDIR /app
+# PATH carries the local .bin so `prisma db seed` can spawn `tsx` by name at boot
+# (Prisma resolves the seed command against PATH, not node_modules/.bin).
 ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
-    NEXT_TELEMETRY_DISABLED=1
+    NEXT_TELEMETRY_DISABLED=1 \
+    PATH="/app/node_modules/.bin:$PATH"
 
 # openssl -> Prisma query engine ; tini -> PID 1 signal reaping ;
 # su-exec -> drop privileges after chowning the volume ; ffmpeg -> video poster

@@ -97,16 +97,17 @@ export function DriveView({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="relative w-full min-w-48 max-w-xs sm:w-auto sm:flex-1">
+        <div className="relative w-full min-w-48 max-w-sm sm:w-auto sm:flex-1">
           <Search
-            size={16}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-faint"
+            size={18}
+            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-text-faint"
           />
           <Input
+            type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Rechercher dans ce dossier…"
-            className="pl-9"
+            className="h-11 rounded-full pl-11"
             aria-label="Rechercher"
           />
         </div>
