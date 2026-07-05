@@ -23,10 +23,11 @@ export default async function DrivePage() {
 
   const name = user.displayName?.trim() || user.email.split("@")[0];
   const greeting = greetingFor(new Date().getHours());
+  const channelHref = `/channel/${user.handle ?? user.id}`;
 
   return (
     <div className="flex flex-col gap-8">
-      <DashboardHero name={name} greeting={greeting} stats={stats} />
+      <DashboardHero name={name} greeting={greeting} stats={stats} channelHref={channelHref} />
       <DriveView folderId={null} folders={folders} files={files} />
     </div>
   );

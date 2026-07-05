@@ -9,6 +9,8 @@ import {
   Clapperboard,
   Share2,
   ArrowUpRight,
+  Tv,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 import { formatBytes, clamp, cn } from "@/lib/utils";
@@ -40,10 +42,12 @@ export function DashboardHero({
   name,
   greeting,
   stats,
+  channelHref,
 }: {
   name: string;
   greeting: string;
   stats: DashboardStats;
+  channelHref: string;
 }) {
   const reduce = useReducedMotion();
   const pct =
@@ -74,6 +78,11 @@ export function DashboardHero({
             ? `Vous avez ${stats.starredCount} fichier${stats.starredCount > 1 ? "s" : ""} en favori — bon retour dans votre espace.`
             : "Bienvenue dans votre espace Snak'r."}
         </p>
+        <div className="mt-1 flex flex-wrap gap-2">
+          <QuickLink href={channelHref} icon={Tv} label="Ma chaîne" />
+          <QuickLink href="/videos" icon={Clapperboard} label="Espace vidéos" />
+          <QuickLink href="/settings" icon={Settings} label="Paramètres" />
+        </div>
       </motion.div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
@@ -131,6 +140,17 @@ export function DashboardHero({
         ))}
       </div>
     </motion.section>
+  );
+}
+
+function QuickLink({ href, icon: Icon, label }: { href: string; icon: LucideIcon; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="glass inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium text-text-lo transition-colors hover:text-text-hi"
+    >
+      <Icon size={15} className="text-accent" aria-hidden /> {label}
+    </Link>
   );
 }
 

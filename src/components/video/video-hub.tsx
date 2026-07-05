@@ -9,6 +9,7 @@ import {
   ArrowUpDown,
   Check,
   History,
+  Users,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -71,7 +72,13 @@ function sortVideos(list: VideoItem[], sort: SortKey): VideoItem[] {
 // Hide the scrollbar on the horizontal shelves (chips + continue-watching).
 const HIDE_SCROLLBAR = "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 
-export function VideoHub({ videos }: { videos: VideoItem[] }) {
+export function VideoHub({
+  videos,
+  subscriptions = [],
+}: {
+  videos: VideoItem[];
+  subscriptions?: VideoItem[];
+}) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [sort, setSort] = useState<SortKey>("recent");
@@ -107,6 +114,7 @@ export function VideoHub({ videos }: { videos: VideoItem[] }) {
   );
 
   const showShelf = filter === "all" && q.trim() === "" && continueWatching.length > 0;
+  const showSubs = filter === "all" && q.trim() === "" && subscriptions.length > 0;
   const sortLabel = SORTS.find((s) => s.key === sort)?.label ?? "";
 
   return (
@@ -183,6 +191,22 @@ export function VideoHub({ videos }: { videos: VideoItem[] }) {
           </DropdownMenu>
         </div>
       </div>
+
+      {/* New from subscriptions shelf */}
+      {showSubs && (
+        <section className="flex flex-col gap-3">
+          <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-text-hi">
+            <Users size={18} className="text-accent" aria-hidden /> Nouveautés de vos abonnements
+          </h2>
+          <div className={cn("-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0", HIDE_SCROLLBAR)}>
+            {subscriptions.slice(0, 12).map((v) => (
+              <div key={v.id} className="w-64 shrink-0 snap-start sm:w-72">
+                <VideoCard video={v} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Continue watching shelf */}
       {showShelf && (

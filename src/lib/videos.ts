@@ -136,8 +136,9 @@ async function accessibleFileWhere(user: SessionUser): Promise<Prisma.FileWhereI
   const or: Prisma.FileWhereInput[] = [{ ownerId: user.id }];
   if (grantedFileIds.length) or.push({ id: { in: grantedFileIds } });
   if (folderScope.length) or.push({ folderId: { in: folderScope } });
-  // Public / unlisted videos are watchable by any signed-in user too.
-  or.push({ visibility: { in: ["PUBLIC", "UNLISTED"] } });
+  // PUBLIC videos are part of the shared network and discoverable by everyone.
+  // UNLISTED is deliberately excluded here — it is link-only, never listed.
+  or.push({ visibility: "PUBLIC" });
 
   return { blob: { mimeType: { in: [...VIDEO_MIMES] } }, OR: or };
 }

@@ -169,7 +169,7 @@ export function ChannelView({
         ) : (
           <div className="grid grid-cols-1 gap-x-4 gap-y-7 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {videos.map((v) => (
-              <VideoCard key={v.id} video={v} />
+              <VideoCard key={v.id} video={v} basePath={channel.isOwner ? "/videos" : "/watch"} />
             ))}
           </div>
         )}
