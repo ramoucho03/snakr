@@ -4,7 +4,7 @@ import { storageSummary } from "@/lib/files";
 import { AppHeader } from "@/components/layout/app-header";
 import { DriveTabs } from "@/components/drive/drive-tabs";
 
-export const metadata = { title: "Mon drive" };
+export const metadata = { title: "Mon espace" };
 
 export default async function DriveLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
@@ -16,7 +16,14 @@ export default async function DriveLayout({ children }: { children: React.ReactN
   return (
     <div className="flex min-h-dvh flex-col">
       <AppHeader
-        user={{ email: user.email, displayName: user.displayName, role: user.role }}
+        user={{
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          role: user.role,
+          avatarKey: user.avatarKey,
+          handle: user.handle,
+        }}
         used={used}
         limit={limit}
       />

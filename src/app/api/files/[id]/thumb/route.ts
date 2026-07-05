@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { requireRead } from "@/lib/access";
 import { prisma } from "@/lib/db";
+import { isPubliclyWatchable } from "@/lib/videos";
 import { storage } from "@/lib/storage";
 import { serveBlob } from "@/lib/http";
 import { statusOf } from "@/lib/errors";
@@ -15,7 +16,10 @@ export async function GET(
 ): Promise<Response> {
   const { id } = await params;
   try {
-    await requireRead("FILE", id);
+    // Public/unlisted video thumbnails are visible on channel pages to anyone.
+    if (!(await isPubliclyWatchable(id))) {
+      await requireRead("FILE", id);
+    }
     const file = await prisma.file.findUnique({
       where: { id },
       select: {

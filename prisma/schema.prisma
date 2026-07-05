@@ -39,6 +39,20 @@ enum AccessLevel {
   OWNER
 }
 
+// Video sharing reach. PRIVATE = ACL only (default, unchanged behaviour).
+// UNLISTED = anyone with the link, not surfaced publicly. PUBLIC = surfaced on
+// the owner's channel and browsable without an account.
+enum Visibility {
+  PRIVATE
+  UNLISTED
+  PUBLIC
+}
+
+enum ReactionKind {
+  LIKE
+  DISLIKE
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -50,15 +64,25 @@ model User {
   mustChangePw Boolean  @default(false)
   isSuspended  Boolean  @default(false)
   avatarKey    String? // storage key of avatar derivative, optional
+  // ── Channel / profile (member customization) ──────────────────────────────
+  handle       String?  @unique // "@handle" for the public channel URL, optional
+  bio          String? // short channel description shown on the profile
+  bannerKey    String? // storage key of the channel banner image, optional
+  accentColor  String? // personal accent (hex) applied to their channel header
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  sessions    Session[]
-  folders     Folder[]
-  files       File[]
-  shares      Share[]
-  memberships GroupMember[]
-  grantsGiven Permission[]  @relation("GrantedBy")
+  sessions      Session[]
+  folders       Folder[]
+  files         File[]
+  shares        Share[]
+  memberships   GroupMember[]
+  grantsGiven   Permission[]    @relation("GrantedBy")
+  comments      Comment[]
+  commentLikes  CommentLike[]
+  reactions     VideoReaction[]
+  subscriptions Subscription[]  @relation("Subscriber") // channels this user follows
+  subscribers   Subscription[]  @relation("Channel") // users following this channel
 
   @@index([role])
 }
@@ -121,14 +145,22 @@ model File {
   blobHash  String
   blob      Blob     @relation(fields: [blobHash], references: [hash])
   starred   Boolean  @default(false)
+  // ── Video publishing metadata (harmless/nullable on non-video files) ───────
+  description String? // long description shown under the player (video pages)
+  visibility  Visibility @default(PRIVATE) // gate for anonymous /watch access
+  viewCount   Int        @default(0)
+  publishedAt DateTime? // first time visibility left PRIVATE (channel ordering)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  shares Share[]
+  shares    Share[]
+  comments  Comment[]
+  reactions VideoReaction[]
 
   @@index([ownerId])
   @@index([folderId])
   @@index([blobHash])
+  @@index([visibility])
 }
 
 // Thumbnails / posters, keyed by source blob so they're regenerable + cache-friendly.
@@ -204,4 +236,68 @@ model Setting {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+// Threaded comments on a video (File). Self-referential for replies; a delete
+// cascades to its replies and its likes.
+model Comment {
+  id             String   @id @default(cuid())
+  fileId         String
+  file           File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  authorId       String
+  author         User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parentId       String? // null = top-level comment
+  parent         Comment? @relation("Thread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies        Comment[] @relation("Thread")
+  body           String
+  pinned         Boolean  @default(false) // owner can pin one comment to the top
+  heartedByOwner Boolean  @default(false) // creator "heart", YouTube-style
+  edited         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  likes CommentLike[]
+
+  @@index([fileId])
+  @@index([parentId])
+  @@index([authorId])
+}
+
+// A user's like on a comment. One row per (comment, user).
+model CommentLike {
+  commentId String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([commentId, userId])
+  @@index([userId])
+}
+
+// A user's like/dislike on a video. One row per (file, user); flipping the kind
+// updates in place.
+model VideoReaction {
+  fileId    String
+  file      File         @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      ReactionKind
+  createdAt DateTime     @default(now())
+
+  @@id([fileId, userId])
+  @@index([fileId])
+  @@index([userId])
+}
+
+// A subscription edge: `subscriber` follows `channel` (both are Users).
+model Subscription {
+  subscriberId String
+  subscriber   User     @relation("Subscriber", fields: [subscriberId], references: [id], onDelete: Cascade)
+  channelId    String
+  channel      User     @relation("Channel", fields: [channelId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@id([subscriberId, channelId])
+  @@index([channelId])
 }

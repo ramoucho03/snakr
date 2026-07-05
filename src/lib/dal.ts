@@ -16,6 +16,7 @@ export interface SessionUser {
   storageUsed: bigint;
   mustChangePw: boolean;
   avatarKey: string | null;
+  handle: string | null;
 }
 
 /**
@@ -43,6 +44,7 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
           mustChangePw: true,
           isSuspended: true,
           avatarKey: true,
+          handle: true,
         },
       },
     },
@@ -62,6 +64,7 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     storageUsed: u.storageUsed,
     mustChangePw: u.mustChangePw,
     avatarKey: u.avatarKey,
+    handle: u.handle,
   };
 });
 

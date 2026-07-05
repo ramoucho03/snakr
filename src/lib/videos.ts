@@ -13,6 +13,10 @@ import type { SessionUser } from "./dal";
  * (grants inherit down a subtree). It never leaks a video the caller can't read.
  * The byte-serving route (/api/files/[id]) re-checks access regardless, so this
  * listing is a convenience, not the security boundary.
+ *
+ * Public videos (visibility PUBLIC / UNLISTED) are readable anonymously; those
+ * paths live in the `getPublicVideoDetail` / `listPublicChannelVideos` helpers
+ * and are the ONLY functions here that skip the ACL by design.
  */
 
 export const VIDEO_MIMES = [
@@ -22,6 +26,8 @@ export const VIDEO_MIMES = [
   "video/x-matroska",
 ] as const;
 
+export type VideoVisibility = "PRIVATE" | "UNLISTED" | "PUBLIC";
+
 export interface VideoDTO {
   id: string;
   name: string;
@@ -29,9 +35,15 @@ export interface VideoDTO {
   mime: string;
   createdAt: Date;
   hasThumb: boolean;
+  ownerId: string;
   ownerName: string;
+  ownerHandle: string | null;
+  ownerHasAvatar: boolean;
   owned: boolean;
   starred: boolean;
+  visibility: VideoVisibility;
+  viewCount: number;
+  description: string | null;
 }
 
 const videoSelect = {
@@ -40,7 +52,10 @@ const videoSelect = {
   ownerId: true,
   starred: true,
   createdAt: true,
-  owner: { select: { displayName: true, email: true } },
+  visibility: true,
+  viewCount: true,
+  description: true,
+  owner: { select: { displayName: true, email: true, handle: true, avatarKey: true } },
   blob: {
     select: {
       size: true,
@@ -52,7 +67,7 @@ const videoSelect = {
 
 type VideoRow = Prisma.FileGetPayload<{ select: typeof videoSelect }>;
 
-function toDTO(f: VideoRow, userId: string): VideoDTO {
+function toDTO(f: VideoRow, userId: string | null): VideoDTO {
   return {
     id: f.id,
     name: f.name,
@@ -60,9 +75,15 @@ function toDTO(f: VideoRow, userId: string): VideoDTO {
     mime: f.blob.mimeType,
     createdAt: f.createdAt,
     hasThumb: f.blob.derivatives.length > 0,
+    ownerId: f.ownerId,
     ownerName: f.owner.displayName ?? f.owner.email,
-    owned: f.ownerId === userId,
+    ownerHandle: f.owner.handle,
+    ownerHasAvatar: f.owner.avatarKey != null,
+    owned: userId != null && f.ownerId === userId,
     starred: f.starred,
+    visibility: f.visibility,
+    viewCount: f.viewCount,
+    description: f.description,
   };
 }
 
@@ -115,6 +136,8 @@ async function accessibleFileWhere(user: SessionUser): Promise<Prisma.FileWhereI
   const or: Prisma.FileWhereInput[] = [{ ownerId: user.id }];
   if (grantedFileIds.length) or.push({ id: { in: grantedFileIds } });
   if (folderScope.length) or.push({ folderId: { in: folderScope } });
+  // Public / unlisted videos are watchable by any signed-in user too.
+  or.push({ visibility: { in: ["PUBLIC", "UNLISTED"] } });
 
   return { blob: { mimeType: { in: [...VIDEO_MIMES] } }, OR: or };
 }
@@ -139,4 +162,98 @@ export async function getVideoDetail(id: string, userId: string): Promise<VideoD
     select: videoSelect,
   });
   return f ? toDTO(f, userId) : null;
+}
+
+/**
+ * A public/unlisted video for the anonymous /watch page. Returns null unless the
+ * video exists AND its owner has published it (visibility != PRIVATE). This is a
+ * deliberate ACL bypass — the ONLY read path that serves a video to a visitor
+ * with no session.
+ */
+export async function getPublicVideoDetail(id: string): Promise<VideoDTO | null> {
+  const f = await prisma.file.findFirst({
+    where: {
+      id,
+      visibility: { in: ["PUBLIC", "UNLISTED"] },
+      blob: { mimeType: { in: [...VIDEO_MIMES] } },
+    },
+    select: videoSelect,
+  });
+  return f ? toDTO(f, null) : null;
+}
+
+/** Is this file a public/unlisted video? Used by the byte route to serve anon. */
+export async function isPubliclyWatchable(id: string): Promise<boolean> {
+  const f = await prisma.file.findFirst({
+    where: {
+      id,
+      visibility: { in: ["PUBLIC", "UNLISTED"] },
+      blob: { mimeType: { in: [...VIDEO_MIMES] } },
+    },
+    select: { id: true },
+  });
+  return f != null;
+}
+
+/** Videos published PUBLIC by a channel, newest first (anonymous-safe). */
+export async function listPublicChannelVideos(channelId: string): Promise<VideoDTO[]> {
+  const files = await prisma.file.findMany({
+    where: {
+      ownerId: channelId,
+      visibility: "PUBLIC",
+      blob: { mimeType: { in: [...VIDEO_MIMES] } },
+    },
+    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    select: videoSelect,
+  });
+  return files.map((f) => toDTO(f, null));
+}
+
+/** Every video a channel owns (owner's own view of their channel). */
+export async function listOwnChannelVideos(channelId: string): Promise<VideoDTO[]> {
+  const files = await prisma.file.findMany({
+    where: { ownerId: channelId, blob: { mimeType: { in: [...VIDEO_MIMES] } } },
+    orderBy: { createdAt: "desc" },
+    select: videoSelect,
+  });
+  return files.map((f) => toDTO(f, channelId));
+}
+
+/**
+ * The "subscriptions" feed: recent public videos from channels the viewer
+ * follows, newest first.
+ */
+export async function listSubscriptionFeed(userId: string): Promise<VideoDTO[]> {
+  const subs = await prisma.subscription.findMany({
+    where: { subscriberId: userId },
+    select: { channelId: true },
+  });
+  if (subs.length === 0) return [];
+  const files = await prisma.file.findMany({
+    where: {
+      ownerId: { in: subs.map((s) => s.channelId) },
+      visibility: "PUBLIC",
+      blob: { mimeType: { in: [...VIDEO_MIMES] } },
+    },
+    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    take: 60,
+    select: videoSelect,
+  });
+  return files.map((f) => toDTO(f, userId));
+}
+
+/**
+ * Best-effort view increment. Called from a POST route after the client has
+ * actually started playback; deduplication is handled client-side (one ping per
+ * session) so this stays a single cheap UPDATE.
+ */
+export async function incrementView(id: string): Promise<void> {
+  await prisma.file
+    .updateMany({
+      where: { id, blob: { mimeType: { in: [...VIDEO_MIMES] } } },
+      data: { viewCount: { increment: 1 } },
+    })
+    .catch(() => {
+      /* non-critical: a missed view must never surface as an error */
+    });
 }

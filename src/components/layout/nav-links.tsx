@@ -6,7 +6,7 @@ import { HardDrive, Clapperboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
-  { href: "/drive", label: "Drive", icon: HardDrive, prefix: "/drive" },
+  { href: "/drive", label: "Mon espace", icon: HardDrive, prefix: "/drive" },
   { href: "/videos", label: "Vidéos", icon: Clapperboard, prefix: "/videos" },
 ] as const;
 

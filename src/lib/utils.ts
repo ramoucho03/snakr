@@ -68,6 +68,18 @@ export function clamp(n: number, min: number, max: number): number {
   return Math.min(Math.max(n, min), max);
 }
 
+const compact = new Intl.NumberFormat("fr", { notation: "compact", maximumFractionDigits: 1 });
+
+/** Compact count: 999 → "999", 1500 → "1,5 k", 2_400_000 → "2,4 M". */
+export function formatCount(n: number): string {
+  return compact.format(n);
+}
+
+/** "1 vue" / "12 k vues" — count + pluralized noun. */
+export function formatViews(n: number): string {
+  return `${formatCount(n)} ${n <= 1 ? "vue" : "vues"}`;
+}
+
 /** Media duration as "m:ss" or "h:mm:ss" (YouTube-style). Empty for unknown. */
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return "";

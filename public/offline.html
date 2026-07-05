@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hors ligne · Snak'r</title>
+  <link rel="icon" href="/favicon.svg" />
+  <!-- Self-contained: inline styles only (CSP allows inline styles, never inline scripts). -->
+  <style>
+    :root { color-scheme: dark; }
+    * { margin: 0; box-sizing: border-box; }
+    body {
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: 2rem;
+      background: #0b0a07;
+      color: #f2ead8;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      text-align: center;
+    }
+    .card {
+      max-width: 26rem;
+      padding: 2.5rem 2rem;
+      border: 1px solid rgba(232, 220, 194, 0.14);
+      border-radius: 1.25rem;
+      background: rgba(232, 220, 194, 0.055);
+    }
+    img { width: 96px; height: 96px; border-radius: 1.25rem; margin-bottom: 1.25rem; }
+    h1 { font-size: 1.35rem; margin-bottom: 0.5rem; letter-spacing: -0.02em; }
+    p { color: rgba(242, 234, 216, 0.66); font-size: 0.95rem; line-height: 1.55; }
+    a.retry {
+      display: inline-block;
+      margin-top: 1.5rem;
+      padding: 0.7rem 1.5rem;
+      border-radius: 0.75rem;
+      background: #e8dcc2;
+      color: #14110c;
+      font-weight: 600;
+      font-size: 0.95rem;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img src="/brand/icon-192.png" alt="Snak'r" width="96" height="96" />
+    <h1>Vous êtes hors ligne</h1>
+    <p>
+      Impossible de joindre votre serveur Snak'r pour le moment.
+      Vérifiez votre connexion, puis réessayez — les uploads interrompus
+      reprendront là où ils s'étaient arrêtés.
+    </p>
+    <a class="retry" href="/drive">Réessayer</a>
+  </div>
+</body>
+</html>

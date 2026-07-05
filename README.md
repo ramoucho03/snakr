@@ -6,6 +6,8 @@
 
 **We ride, we partage.** A self-hosted, offline-capable file transfer & sharing platform — resumable multi-GB uploads, universal in-app preview, secure public links, and an ink-black & bone grunge UI straight from the Snak'r logo. One command to run.
 
+**Installable PWA**: Snak'r installs as a full app on Android, iOS and desktop (Chrome/Edge/Safari) — standalone window, branded install prompt, offline fallback page, and in-app update banner. On iOS: Safari → Partager → « Sur l'écran d'accueil ».
+
 Built on **Next.js 16** (App Router, standalone) · **PostgreSQL 16** · **Prisma** · local-disk storage (S3-swappable) · **tus** resumable uploads · **argon2id** auth · a strict self-only CSP.
 
 > 🇫🇷 **Guide d'installation complet en français** (serveur Ubuntu/Debian vierge, de A à Z) : [voir plus bas](#-installation-sur-un-serveur-ubuntu--debian-de-a-à-z).

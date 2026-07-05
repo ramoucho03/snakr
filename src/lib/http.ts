@@ -94,3 +94,35 @@ export async function serveBlob(opts: ServeOptions): Promise<Response> {
     headers: { ...base, "Content-Length": String(opts.size) },
   });
 }
+
+/**
+ * Serve a mutable, publicly-cacheable image (avatar / banner). The storage key
+ * uniquely identifies the current bytes, so it doubles as a strong ETag: the
+ * browser revalidates cheaply and picks up a new image the instant the key
+ * changes. Returns 404 for a null key, 304 when the client's copy is current.
+ */
+export async function serveStoredImage(
+  key: string | null,
+  ifNoneMatch: string | null,
+  mime = "image/webp",
+): Promise<Response> {
+  if (!key) return new Response(null, { status: 404 });
+  const etag = `"${key}"`;
+  if (ifNoneMatch && ifNoneMatch === etag) {
+    return new Response(null, { status: 304, headers: { ETag: etag } });
+  }
+  const stat = await storage().stat(key);
+  if (!stat) return new Response(null, { status: 404 });
+
+  const stream = await storage().stream(key);
+  return new Response(toWeb(stream), {
+    status: 200,
+    headers: {
+      "Content-Type": safeContentType(mime),
+      "X-Content-Type-Options": "nosniff",
+      "Content-Length": String(stat.size),
+      "Cache-Control": "public, max-age=0, must-revalidate",
+      ETag: etag,
+    },
+  });
+}
