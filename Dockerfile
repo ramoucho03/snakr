@@ -57,32 +57,21 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 # --- Full package.json: `prisma db seed` reads the `prisma.seed` key from it ---
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 
-# --- Prisma runtime bits: the standalone trace omits the CLI + engines, so
-#     `migrate deploy` / `db seed` need these copied in explicitly. ---
+# --- node_modules: overlay the FULL installed tree from the builder ------------
+# The standalone trace trims node_modules to only what the SERVER imports, but the
+# entrypoint also runs the Prisma CLI (`migrate deploy` + `db seed` via tsx) at
+# boot. That CLI drags a deep runtime tree the trace omits — @prisma/config →
+# { effect (→ fast-check), c12, empathic, deepmerge-ts }, plus @prisma/engines and
+# the tsx/esbuild seed toolchain. Hand-copying it is a losing game: every Prisma
+# bump adds another missing module (first the *.wasm, then `effect`, …). So copy
+# the COMPLETE node_modules over the trimmed one. Copying the whole directory
+# PRESERVES the .bin symlinks (a direct `COPY .bin/prisma` would deref it into a
+# plain file and break its __dirname-relative wasm loading). Costs image size;
+# buys a container that actually migrates + seeds on first boot.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+
+# Prisma schema + migrations, read by `migrate deploy` / `db seed` at startup.
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
-
-# --- Seed toolchain: `prisma db seed` runs `tsx prisma/seed.ts`, which imports
-#     @node-rs/argon2. None of these are guaranteed by the standalone trace, so
-#     copy them (and tsx's esbuild dependency, whole @esbuild/@node-rs platform
-#     dirs to stay arch-agnostic) to make first-boot seeding actually work. ---
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/tsx ./node_modules/tsx
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/esbuild ./node_modules/esbuild
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@esbuild ./node_modules/@esbuild
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@node-rs ./node_modules/@node-rs
-
-# Recreate the CLI launchers as SYMLINKS (NOT copies). `COPY node_modules/.bin/<tool>`
-# dereferences the symlink into a plain file inside .bin/, so the tool's
-# __dirname resolves to .bin/ and its sibling assets vanish — prisma then dies with
-# `ENOENT ... /app/node_modules/.bin/prisma_schema_build_bg.wasm` and the entrypoint
-# crash-loops. Relative symlinks point back into the real package dirs copied above,
-# so Node's realpath resolution finds each tool's assets (wasm, esbuild) again.
-RUN mkdir -p node_modules/.bin \
- && ln -sf ../prisma/build/index.js node_modules/.bin/prisma \
- && ln -sf ../tsx/dist/cli.mjs node_modules/.bin/tsx \
- && ln -sf ../esbuild/bin/esbuild node_modules/.bin/esbuild
 
 # Upload volume mount point — created + owned before the volume is attached so
 # the entrypoint's chown has a target even on a fresh named volume.
