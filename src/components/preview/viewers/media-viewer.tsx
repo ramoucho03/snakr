@@ -4,16 +4,13 @@ import { useState } from "react";
 import { Music } from "lucide-react";
 import type { PreviewFile } from "../preview-modal";
 import { DownloadCard } from "../download-card";
+import { VideoPlayer } from "@/components/video/video-player";
 
 /**
- * Native HTML5 media player for video and audio.
- *
- * NOTE: `@vidstack/react@0.6.15` is installed, but its runtime bundle imports
- * from the `vidstack` core package, which is NOT present in node_modules — so
- * importing it would break the Turbopack build outright (not merely lack CSS).
- * The authenticated file route returns HTTP 206 for Range requests, so native
- * `<video>`/`<audio>` scrubbing works correctly. This is the deliberate,
- * build-safe fallback called for in the brief.
+ * Media preview. Video is served through the shared <VideoPlayer> — native
+ * controls for flat clips, a WebGL 360° viewer (drag-to-look) for equirectangular
+ * sources. Audio uses a native <audio> element. The authenticated file route
+ * answers Range with 206, so scrubbing and 360 texture upload both work.
  */
 export default function MediaViewer({
   file,
@@ -25,7 +22,7 @@ export default function MediaViewer({
   const [failed, setFailed] = useState(false);
   const src = `/api/files/${file.id}`;
 
-  if (failed) return <DownloadCard file={file} reason="Lecture impossible" />;
+  if (failed && kind === "audio") return <DownloadCard file={file} reason="Lecture impossible" />;
 
   if (kind === "audio") {
     return (
@@ -48,13 +45,16 @@ export default function MediaViewer({
 
   return (
     <div className="flex h-full w-full items-center justify-center p-2 sm:p-4">
-      <video
-        src={src}
-        controls
-        playsInline
-        onError={() => setFailed(true)}
-        className="max-h-full max-w-full rounded-xl bg-black shadow-2xl"
-      />
+      <div className="aspect-video max-h-full w-full max-w-[min(100%,calc((100dvh-9rem)*16/9))]">
+        <VideoPlayer
+          src={src}
+          poster={`/api/files/${file.id}/thumb`}
+          filename={file.name}
+          autoPlay
+          fill
+          className="shadow-2xl"
+        />
+      </div>
     </div>
   );
 }

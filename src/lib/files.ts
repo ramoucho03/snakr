@@ -108,6 +108,39 @@ export async function listFolder(
   };
 }
 
+/** All starred files the user owns, most recently touched first (Favoris). */
+export async function listStarredFiles(ownerId: string): Promise<FileDTO[]> {
+  const files = await prisma.file.findMany({
+    where: { ownerId, starred: true },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      starred: true,
+      createdAt: true,
+      updatedAt: true,
+      blob: {
+        select: {
+          size: true,
+          mimeType: true,
+          derivatives: { where: { kind: "thumb" }, select: { id: true } },
+        },
+      },
+    },
+  });
+  return files.map((f) => ({
+    id: f.id,
+    name: f.name,
+    size: Number(f.blob.size),
+    mime: f.blob.mimeType,
+    kind: previewKindOf(f.blob.mimeType, f.name),
+    starred: f.starred,
+    hasThumb: f.blob.derivatives.length > 0,
+    createdAt: f.createdAt,
+    updatedAt: f.updatedAt,
+  }));
+}
+
 /** Root → current breadcrumbs for a folder id (empty at drive root). */
 export async function breadcrumbs(folderId: string | null): Promise<Breadcrumb[]> {
   if (!folderId) return [];

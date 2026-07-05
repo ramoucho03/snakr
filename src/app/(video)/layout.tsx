@@ -17,7 +17,6 @@ export default async function VideoLayout({ children }: { children: React.ReactN
   return (
     <div className="flex min-h-dvh flex-col">
       <AppHeader
-        wide
         user={{ email: user.email, displayName: user.displayName, role: user.role }}
         used={used}
         limit={limit}

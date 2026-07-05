@@ -6,7 +6,6 @@ import Link from "next/link";
 import {
   Download,
   Star,
-  Maximize,
   RectangleHorizontal,
   FolderOpen,
   ListVideo,
@@ -17,6 +16,7 @@ import { cn, formatBytes, formatDate, initials } from "@/lib/utils";
 import { starAction } from "@/app/drive/actions";
 import type { VideoItem } from "./types";
 import { VideoCard } from "./video-card";
+import { VideoPlayer } from "./video-player";
 import { saveProgress, getProgress, clearProgress } from "./progress";
 
 const AUTOPLAY_KEY = "snakr:autoplay";
@@ -31,7 +31,6 @@ export function WatchView({
 }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const playerBoxRef = useRef<HTMLDivElement | null>(null);
   const lastSavedRef = useRef(-1);
 
   const [theater, setTheater] = useState(false);
@@ -83,15 +82,7 @@ export function WatchView({
     });
   };
 
-  const goFullscreen = useCallback(() => {
-    const el = playerBoxRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void el.requestFullscreen?.().catch(() => {});
-  }, []);
-
-  const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const el = e.currentTarget;
+  const handleLoadedMetadata = (el: HTMLVideoElement) => {
     setResolution({ w: el.videoWidth, h: el.videoHeight });
     // Resume where the viewer left off (unless basically at the start/end).
     const saved = getProgress(video.id);
@@ -104,18 +95,15 @@ export function WatchView({
     }
   };
 
-  const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const el = e.currentTarget;
+  const handleTimeUpdate = (el: HTMLVideoElement) => {
     const sec = Math.floor(el.currentTime);
-    // Throttle to once every 5s of playback.
     if (sec !== lastSavedRef.current && sec % 5 === 0) {
       lastSavedRef.current = sec;
       saveProgress(video.id, el.currentTime, el.duration);
     }
   };
 
-  const handlePause = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const el = e.currentTarget;
+  const handlePause = (el: HTMLVideoElement) => {
     saveProgress(video.id, el.currentTime, el.duration);
   };
 
@@ -139,7 +127,7 @@ export function WatchView({
     });
   }
 
-  // Keyboard shortcuts: (t)heater, (f)ullscreen — YouTube parity.
+  // Keyboard shortcut: (t)heater.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -153,42 +141,29 @@ export function WatchView({
       if (e.key === "t" || e.key === "T") {
         e.preventDefault();
         toggleTheater();
-      } else if (e.key === "f" || e.key === "F") {
-        e.preventDefault();
-        goFullscreen();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggleTheater, goFullscreen]);
-
-  const player = (
-    <div
-      ref={playerBoxRef}
-      className="relative mx-auto aspect-video w-full overflow-hidden rounded-2xl bg-black shadow-(--shadow-float) ring-1 ring-glass-border"
-      style={theater ? { maxWidth: "calc((100vh - 172px) * 16 / 9)" } : undefined}
-    >
-      <video
-        ref={videoRef}
-        src={`/api/files/${video.id}`}
-        poster={video.hasThumb ? `/api/files/${video.id}/thumb` : undefined}
-        controls
-        autoPlay
-        playsInline
-        onEnded={handleEnded}
-        onLoadedMetadata={handleLoadedMetadata}
-        onTimeUpdate={handleTimeUpdate}
-        onPause={handlePause}
-        className="absolute inset-0 h-full w-full bg-black object-contain"
-      />
-    </div>
-  );
+  }, [toggleTheater]);
 
   return (
     <div className={cn("flex flex-col gap-6", !theater && "xl:flex-row")}>
       {/* Main column */}
       <div className={cn("flex min-w-0 flex-col gap-4", !theater && "xl:flex-1")}>
-        {player}
+        <VideoPlayer
+          src={`/api/files/${video.id}`}
+          poster={video.hasThumb ? `/api/files/${video.id}/thumb` : undefined}
+          filename={video.name}
+          autoPlay
+          videoRef={videoRef}
+          onLoadedMetadata={handleLoadedMetadata}
+          onTimeUpdate={handleTimeUpdate}
+          onPause={handlePause}
+          onEnded={handleEnded}
+          className="mx-auto shadow-(--shadow-float) ring-1 ring-glass-border"
+          style={theater ? { maxWidth: "calc((100vh - 172px) * 16 / 9)" } : undefined}
+        />
 
         <h1 className="font-display text-lg font-semibold leading-tight text-text-hi sm:text-xl">
           {video.name}
@@ -245,13 +220,6 @@ export function WatchView({
               )}
             >
               <RectangleHorizontal size={15} aria-hidden />
-            </button>
-            <button
-              onClick={goFullscreen}
-              title="Plein écran (f)"
-              className={buttonClass({ variant: "secondary", size: "sm" })}
-            >
-              <Maximize size={15} aria-hidden />
             </button>
           </div>
         </div>

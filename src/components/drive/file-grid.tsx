@@ -14,6 +14,7 @@ import {
   Eye,
   FolderOpen,
   PlayCircle,
+  Check,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -39,6 +40,122 @@ export interface GridCallbacks {
   onDelete: (item: TargetItem) => void;
 }
 
+/** Multi-select wiring shared by the grid and list views. */
+export interface SelectionProps {
+  keys: Set<string>;
+  active: boolean;
+  onToggle: (key: string) => void;
+}
+
+export const selKey = (type: "FILE" | "FOLDER", id: string) => `${type}:${id}`;
+
+/** Menu entries for a folder — shared between grid cards and list rows. */
+export function FolderMenuItems({
+  folder,
+  callbacks,
+}: {
+  folder: FolderDTO;
+  callbacks: GridCallbacks;
+}) {
+  const target: TargetItem = { id: folder.id, type: "FOLDER", name: folder.name };
+  return (
+    <>
+      <DropdownItem onSelect={() => callbacks.onOpenFolder(folder.id)}>
+        <FolderOpen size={16} /> Ouvrir
+      </DropdownItem>
+      <DropdownItem onSelect={() => callbacks.onShare(target)}>
+        <Share2 size={16} /> Partager
+      </DropdownItem>
+      <DropdownItem onSelect={() => callbacks.onRename(target)}>
+        <Pencil size={16} /> Renommer
+      </DropdownItem>
+      <DropdownItem onSelect={() => callbacks.onMove(target)}>
+        <FolderInput size={16} /> Déplacer
+      </DropdownItem>
+      <DropdownSeparator />
+      <DropdownItem danger onSelect={() => callbacks.onDelete(target)}>
+        <Trash2 size={16} /> Supprimer
+      </DropdownItem>
+    </>
+  );
+}
+
+/** Menu entries for a file — shared between grid cards and list rows. */
+export function FileMenuItems({
+  file,
+  callbacks,
+}: {
+  file: FileDTO;
+  callbacks: GridCallbacks;
+}) {
+  const target: TargetItem = { id: file.id, type: "FILE", name: file.name };
+  return (
+    <>
+      {file.kind === "video" && (
+        <DropdownItem onSelect={() => callbacks.onWatch(file.id)}>
+          <PlayCircle size={16} /> Regarder
+        </DropdownItem>
+      )}
+      <DropdownItem onSelect={() => callbacks.onPreview(file)}>
+        <Eye size={16} /> Aperçu
+      </DropdownItem>
+      <DropdownItem onSelect={() => callbacks.onDownload(file.id)}>
+        <Download size={16} /> Télécharger
+      </DropdownItem>
+      <DropdownItem onSelect={() => callbacks.onStar(file.id)}>
+        <Star size={16} /> {file.starred ? "Retirer des favoris" : "Ajouter aux favoris"}
+      </DropdownItem>
+      <DropdownItem onSelect={() => callbacks.onShare(target)}>
+        <Share2 size={16} /> Partager
+      </DropdownItem>
+      <DropdownItem onSelect={() => callbacks.onRename(target)}>
+        <Pencil size={16} /> Renommer
+      </DropdownItem>
+      <DropdownItem onSelect={() => callbacks.onMove(target)}>
+        <FolderInput size={16} /> Déplacer
+      </DropdownItem>
+      <DropdownSeparator />
+      <DropdownItem danger onSelect={() => callbacks.onDelete(target)}>
+        <Trash2 size={16} /> Supprimer
+      </DropdownItem>
+    </>
+  );
+}
+
+/** Hover/selected checkbox stamped on the top-left corner of a card. */
+function SelectBox({
+  checked,
+  active,
+  onToggle,
+  label,
+}: {
+  checked: boolean;
+  active: boolean;
+  onToggle: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      aria-label={checked ? `Désélectionner ${label}` : `Sélectionner ${label}`}
+      aria-pressed={checked}
+      className={cn(
+        "absolute left-2 top-2 z-10 grid h-6 w-6 place-items-center rounded-md border backdrop-blur transition-all",
+        checked
+          ? "border-accent bg-accent text-(--accent-contrast) opacity-100"
+          : "border-glass-border bg-bg-0/60 text-transparent opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+        active && "opacity-100",
+      )}
+    >
+      <Check size={14} aria-hidden />
+    </button>
+  );
+}
+
 const container: Variants = {
   hidden: {},
   show: { transition: { staggerChildren: 0.035, delayChildren: 0.04 } },
@@ -52,10 +169,12 @@ export function FileGrid({
   folders,
   files,
   callbacks,
+  selection,
 }: {
   folders: FolderDTO[];
   files: FileDTO[];
   callbacks: GridCallbacks;
+  selection?: SelectionProps;
 }) {
   const reduce = useReducedMotion();
   const anim = reduce
@@ -65,13 +184,13 @@ export function FileGrid({
   return (
     <motion.div
       {...anim}
-      className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+      className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8"
     >
       {folders.map((f) => (
-        <FolderCard key={f.id} folder={f} callbacks={callbacks} reduce={reduce} />
+        <FolderCard key={f.id} folder={f} callbacks={callbacks} selection={selection} reduce={reduce} />
       ))}
       {files.map((f) => (
-        <FileCard key={f.id} file={f} callbacks={callbacks} reduce={reduce} />
+        <FileCard key={f.id} file={f} callbacks={callbacks} selection={selection} reduce={reduce} />
       ))}
     </motion.div>
   );
@@ -98,23 +217,34 @@ function CardMenu({ children }: { children: React.ReactNode }) {
   );
 }
 
+const cardClass = (checked: boolean) =>
+  cn(
+    "glass flex w-full flex-col gap-3 rounded-xl p-3.5 text-left transition-all duration-200 hover:-translate-y-1 hover:border-tan/25 hover:brightness-105 hover:shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)]",
+    checked && "border-accent/60 ring-1 ring-accent/50",
+  );
+
 function FolderCard({
   folder,
   callbacks,
+  selection,
   reduce,
 }: {
   folder: FolderDTO;
   callbacks: GridCallbacks;
+  selection?: SelectionProps;
   reduce: boolean | null;
 }) {
-  const target: TargetItem = { id: folder.id, type: "FOLDER", name: folder.name };
+  const key = selKey("FOLDER", folder.id);
+  const checked = selection?.keys.has(key) ?? false;
   const count = folder.fileCount + folder.subfolderCount;
   return (
     <motion.div variants={reduce ? undefined : item} className="group relative">
       <button
-        onClick={() => callbacks.onOpenFolder(folder.id)}
+        onClick={() =>
+          selection?.active ? selection.onToggle(key) : callbacks.onOpenFolder(folder.id)
+        }
         onDoubleClick={() => callbacks.onOpenFolder(folder.id)}
-        className="glass flex w-full flex-col gap-3 rounded-xl p-3.5 text-left transition-all duration-200 hover:-translate-y-1 hover:border-tan/25 hover:brightness-105 hover:shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)]"
+        className={cardClass(checked)}
       >
         <div className="flex h-20 items-center justify-center rounded-lg bg-linear-to-br from-bg-1/50 to-transparent ring-1 ring-inset ring-glass-border/60 transition-transform duration-200 group-hover:scale-[1.03]">
           <Folder
@@ -131,23 +261,16 @@ function FolderCard({
           </p>
         </div>
       </button>
+      {selection && (
+        <SelectBox
+          checked={checked}
+          active={selection.active}
+          onToggle={() => selection.onToggle(key)}
+          label={folder.name}
+        />
+      )}
       <CardMenu>
-        <DropdownItem onSelect={() => callbacks.onOpenFolder(folder.id)}>
-          <FolderOpen size={16} /> Ouvrir
-        </DropdownItem>
-        <DropdownItem onSelect={() => callbacks.onShare(target)}>
-          <Share2 size={16} /> Partager
-        </DropdownItem>
-        <DropdownItem onSelect={() => callbacks.onRename(target)}>
-          <Pencil size={16} /> Renommer
-        </DropdownItem>
-        <DropdownItem onSelect={() => callbacks.onMove(target)}>
-          <FolderInput size={16} /> Déplacer
-        </DropdownItem>
-        <DropdownSeparator />
-        <DropdownItem danger onSelect={() => callbacks.onDelete(target)}>
-          <Trash2 size={16} /> Supprimer
-        </DropdownItem>
+        <FolderMenuItems folder={folder} callbacks={callbacks} />
       </CardMenu>
     </motion.div>
   );
@@ -156,21 +279,26 @@ function FolderCard({
 function FileCard({
   file,
   callbacks,
+  selection,
   reduce,
 }: {
   file: FileDTO;
   callbacks: GridCallbacks;
+  selection?: SelectionProps;
   reduce: boolean | null;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
-  const target: TargetItem = { id: file.id, type: "FILE", name: file.name };
+  const key = selKey("FILE", file.id);
+  const checked = selection?.keys.has(key) ?? false;
   const showThumb = file.hasThumb && !imgFailed;
 
   return (
     <motion.div variants={reduce ? undefined : item} className="group relative">
       <button
-        onClick={() => callbacks.onPreview(file)}
-        className="glass flex w-full flex-col gap-3 rounded-xl p-3.5 text-left transition-all duration-200 hover:-translate-y-1 hover:border-tan/25 hover:brightness-105 hover:shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)]"
+        onClick={() =>
+          selection?.active ? selection.onToggle(key) : callbacks.onPreview(file)
+        }
+        className={cardClass(checked)}
       >
         <div className="relative flex h-20 items-center justify-center overflow-hidden rounded-lg bg-bg-1/60 ring-1 ring-inset ring-glass-border/60">
           {showThumb ? (
@@ -194,34 +322,16 @@ function FileCard({
           <p className="tabular text-xs text-text-faint">{formatBytes(file.size)}</p>
         </div>
       </button>
+      {selection && (
+        <SelectBox
+          checked={checked}
+          active={selection.active}
+          onToggle={() => selection.onToggle(key)}
+          label={file.name}
+        />
+      )}
       <CardMenu>
-        {file.kind === "video" && (
-          <DropdownItem onSelect={() => callbacks.onWatch(file.id)}>
-            <PlayCircle size={16} /> Regarder
-          </DropdownItem>
-        )}
-        <DropdownItem onSelect={() => callbacks.onPreview(file)}>
-          <Eye size={16} /> Aperçu
-        </DropdownItem>
-        <DropdownItem onSelect={() => callbacks.onDownload(file.id)}>
-          <Download size={16} /> Télécharger
-        </DropdownItem>
-        <DropdownItem onSelect={() => callbacks.onStar(file.id)}>
-          <Star size={16} /> {file.starred ? "Retirer des favoris" : "Ajouter aux favoris"}
-        </DropdownItem>
-        <DropdownItem onSelect={() => callbacks.onShare(target)}>
-          <Share2 size={16} /> Partager
-        </DropdownItem>
-        <DropdownItem onSelect={() => callbacks.onRename(target)}>
-          <Pencil size={16} /> Renommer
-        </DropdownItem>
-        <DropdownItem onSelect={() => callbacks.onMove(target)}>
-          <FolderInput size={16} /> Déplacer
-        </DropdownItem>
-        <DropdownSeparator />
-        <DropdownItem danger onSelect={() => callbacks.onDelete(target)}>
-          <Trash2 size={16} /> Supprimer
-        </DropdownItem>
+        <FileMenuItems file={file} callbacks={callbacks} />
       </CardMenu>
     </motion.div>
   );

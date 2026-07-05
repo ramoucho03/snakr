@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/dal";
 import { storageSummary } from "@/lib/files";
 import { AppHeader } from "@/components/layout/app-header";
+import { DriveTabs } from "@/components/drive/drive-tabs";
 
 export const metadata = { title: "Mon drive" };
 
@@ -19,7 +20,10 @@ export default async function DriveLayout({ children }: { children: React.ReactN
         used={used}
         limit={limit}
       />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+      <main className="mx-auto w-full max-w-[110rem] flex-1 px-4 py-6 sm:px-6 lg:px-8">
+        <DriveTabs />
+        {children}
+      </main>
     </div>
   );
 }

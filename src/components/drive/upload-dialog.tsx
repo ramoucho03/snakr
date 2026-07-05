@@ -34,7 +34,8 @@ type DriveFile = ReturnType<Uppy["getFiles"]>[number];
  * server re-checks for ownership.
  */
 let singleton: Uppy | null = null;
-function getUppy(): Uppy {
+/** Exported so the drive view can push dropped files into the same queue. */
+export function getUppy(): Uppy {
   if (!singleton) {
     singleton = new Uppy({
       autoProceed: false,
@@ -235,17 +236,6 @@ export function UploadDialog({
     };
   }, [uppy]);
 
-  // Stamp the CURRENT folder on each file as it's added: a queued file keeps
-  // the destination it was added in, even if the user navigates elsewhere.
-  useEffect(() => {
-    const stamp = (file: { id: string }) =>
-      uppy.setFileMeta(file.id, { folderId: folderId ?? "" });
-    uppy.on("file-added", stamp);
-    return () => {
-      uppy.off("file-added", stamp);
-    };
-  }, [uppy, folderId]);
-
   // Fresh sheet on reopen: sweep rows already finished, keep live/failed ones.
   useEffect(() => {
     if (!open) return;
@@ -289,17 +279,26 @@ export function UploadDialog({
     return () => clearInterval(id);
   }, [transferring, uppy]);
 
+  // The destination folder is stamped in the file's meta AT ADD TIME, so a
+  // queued file keeps the folder it was added in even after navigating away.
   const addFiles = useCallback(
     (incoming: FileList | File[]) => {
       const arr = Array.from(incoming);
       if (arr.length === 0) return;
       try {
-        uppy.addFiles(arr.map((data) => ({ name: data.name, type: data.type, data })));
+        uppy.addFiles(
+          arr.map((data) => ({
+            name: data.name,
+            type: data.type,
+            data,
+            meta: { folderId: folderId ?? "" },
+          })),
+        );
       } catch {
         // Restriction errors already surface via the restriction-failed toast.
       }
     },
-    [uppy],
+    [uppy, folderId],
   );
 
   const pick = () => inputRef.current?.click();

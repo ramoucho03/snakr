@@ -24,6 +24,8 @@ import {
   createFolderSchema,
   renameSchema,
   moveSchema,
+  bulkDeleteSchema,
+  bulkMoveSchema,
   createShareSchema,
   grantAccessSchema,
   fieldErrors,
@@ -117,6 +119,64 @@ export async function deleteAction(input: {
     return { ok: true };
   } catch (err) {
     return fail((err as Error).message || "Suppression impossible");
+  }
+}
+
+/**
+ * Bulk mutations iterate item by item and RE-CHECK access on each one — a mixed
+ * selection where some items aren't owned silently skips those and reports how
+ * many went through (never all-or-nothing on authz, matching drive UX).
+ */
+export async function bulkDeleteAction(input: {
+  items: { id: string; type: "FILE" | "FOLDER" }[];
+}): Promise<Ok<{ deleted: number; skipped: number }> | Fail> {
+  try {
+    await requireUser();
+    const parsed = bulkDeleteSchema.safeParse(input);
+    if (!parsed.success) return fail("Sélection invalide");
+    let deleted = 0;
+    for (const it of parsed.data.items) {
+      try {
+        await requireOwner(it.type, it.id);
+        await deleteItem(it.type, it.id);
+        deleted++;
+      } catch {
+        // Already gone (e.g. inside a folder deleted earlier in the loop) or
+        // not owned — skip and keep going.
+      }
+    }
+    revalidate();
+    if (deleted === 0) return fail("Aucun élément supprimé");
+    return { ok: true, deleted, skipped: parsed.data.items.length - deleted };
+  } catch (err) {
+    return fail((err as Error).message || "Suppression impossible");
+  }
+}
+
+export async function bulkMoveAction(input: {
+  items: { id: string; type: "FILE" | "FOLDER" }[];
+  targetFolderId: string | null;
+}): Promise<Ok<{ moved: number; skipped: number }> | Fail> {
+  try {
+    await requireUser();
+    const parsed = bulkMoveSchema.safeParse(input);
+    if (!parsed.success) return fail("Sélection invalide");
+    if (parsed.data.targetFolderId) await requireWrite("FOLDER", parsed.data.targetFolderId);
+    let moved = 0;
+    for (const it of parsed.data.items) {
+      try {
+        await requireWrite(it.type, it.id);
+        await moveItem(it.type, it.id, parsed.data.targetFolderId);
+        moved++;
+      } catch {
+        // Not writable, or a folder moved into its own subtree — skip it.
+      }
+    }
+    revalidate();
+    if (moved === 0) return fail("Aucun élément déplacé");
+    return { ok: true, moved, skipped: parsed.data.items.length - moved };
+  } catch (err) {
+    return fail((err as Error).message || "Déplacement impossible");
   }
 }
 

@@ -15,7 +15,7 @@ export default async function AdminLayout({
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-40 border-b border-glass-border bg-glass backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-[110rem] items-center gap-3 px-4 py-3 sm:px-6">
           <Logo size={30} />
           <span className="hidden h-6 w-px bg-glass-border sm:block" />
           <h1 className="hidden font-display text-base font-semibold text-text-hi sm:block">
@@ -35,7 +35,7 @@ export default async function AdminLayout({
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">{children}</main>
+      <main className="mx-auto max-w-[110rem] px-4 py-8 sm:px-6">{children}</main>
     </div>
   );
 }

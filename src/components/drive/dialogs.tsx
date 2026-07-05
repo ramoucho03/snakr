@@ -15,6 +15,7 @@ import {
   createFolderAction,
   renameAction,
   moveAction,
+  bulkMoveAction,
   createShareAction,
   moveTargetsAction,
   grantAccessAction,
@@ -153,21 +154,28 @@ export function RenameDialog({
   );
 }
 
-// ── Move ───────────────────────────────────────────────────────────────────
+// ── Move (single item OR a bulk selection) ─────────────────────────────────
 export function MoveDialog({
   item,
+  items,
   open,
   onOpenChange,
+  onMoved,
 }: {
   item: TargetItem | null;
+  /** When set (non-empty), the dialog moves the whole selection at once. */
+  items?: TargetItem[];
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  onMoved?: () => void;
 }) {
   const router = useRouter();
   const [targets, setTargets] = useState<MoveTarget[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pending, start] = useTransition();
+
+  const list = items && items.length > 0 ? items : item ? [item] : [];
 
   useEffect(() => {
     if (!open) return;
@@ -178,20 +186,30 @@ export function MoveDialog({
       .finally(() => setLoading(false));
   }, [open]);
 
-  // Exclude the folder itself and its whole subtree (can't move into own child).
+  // Exclude every selected folder and its whole subtree (can't move into own child).
+  const movedFolderIds = list.filter((i) => i.type === "FOLDER").map((i) => i.id);
   const options = targets.filter((t) => {
-    if (!item || item.type !== "FOLDER") return true;
-    if (t.id === item.id) return false;
-    return !t.path.split("/").filter(Boolean).includes(item.id);
+    if (movedFolderIds.length === 0) return true;
+    if (movedFolderIds.includes(t.id)) return false;
+    const ancestors = t.path.split("/").filter(Boolean);
+    return !movedFolderIds.some((id) => ancestors.includes(id));
   });
 
   function confirm() {
-    if (!item) return;
+    if (list.length === 0) return;
     start(async () => {
-      const r = await moveAction({ id: item.id, type: item.type, targetFolderId: selected });
+      const r =
+        list.length === 1
+          ? await moveAction({ id: list[0].id, type: list[0].type, targetFolderId: selected })
+          : await bulkMoveAction({
+              items: list.map(({ id, type }) => ({ id, type })),
+              targetFolderId: selected,
+            });
       if (r.ok) {
-        toast.success("Déplacé");
+        const moved = "moved" in r && typeof r.moved === "number" ? r.moved : 1;
+        toast.success(moved > 1 ? `${moved} éléments déplacés` : "Déplacé");
         onOpenChange(false);
+        onMoved?.();
         router.refresh();
       } else {
         toast.error(r.error);
@@ -201,7 +219,16 @@ export function MoveDialog({
 
   return (
     <Modal open={open} onOpenChange={onOpenChange}>
-      <ModalContent title="Déplacer vers" description={item ? `« ${item.name} »` : undefined}>
+      <ModalContent
+        title="Déplacer vers"
+        description={
+          list.length === 1
+            ? `« ${list[0].name} »`
+            : list.length > 1
+              ? `${list.length} éléments sélectionnés`
+              : undefined
+        }
+      >
         <div className="mt-2 max-h-72 space-y-1 overflow-y-auto rounded-xl border border-glass-border p-1.5">
           <DestRow
             label="Mon drive (racine)"

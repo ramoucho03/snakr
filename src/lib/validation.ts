@@ -69,6 +69,20 @@ export const moveSchema = z.object({
 });
 export type MoveInput = z.infer<typeof moveSchema>;
 
+const bulkItems = z
+  .array(z.object({ id: z.string().cuid(), type: z.enum(["FILE", "FOLDER"]) }))
+  .min(1, "Sélection vide")
+  .max(200, "200 éléments maximum à la fois");
+
+export const bulkDeleteSchema = z.object({ items: bulkItems });
+export type BulkDeleteInput = z.infer<typeof bulkDeleteSchema>;
+
+export const bulkMoveSchema = z.object({
+  items: bulkItems,
+  targetFolderId: z.string().cuid().nullable(),
+});
+export type BulkMoveInput = z.infer<typeof bulkMoveSchema>;
+
 export const createShareSchema = z.object({
   fileId: z.string().cuid().nullable().optional(),
   folderId: z.string().cuid().nullable().optional(),
