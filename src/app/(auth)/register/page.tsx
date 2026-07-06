@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/dal";
 import { isRegistrationOpen } from "@/lib/settings";
 import { GlassCard } from "@/components/ui/glass-card";
-import { buttonClass } from "@/components/ui/button";
+import { buttonClass } from "@/components/ui/button-variants";
 import { RegisterForm } from "./register-form";
 
 export const metadata: Metadata = { title: "Inscription" };

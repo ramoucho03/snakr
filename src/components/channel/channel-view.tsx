@@ -3,7 +3,7 @@ import { Pencil, Clapperboard, CalendarDays } from "lucide-react";
 import type { ChannelProfile } from "@/lib/channel";
 import type { VideoItem } from "@/components/video/types";
 import { Avatar } from "@/components/ui/avatar";
-import { buttonClass } from "@/components/ui/button";
+import { buttonClass } from "@/components/ui/button-variants";
 import { SubscribeButton } from "@/components/video/subscribe-button";
 import { ShareButton } from "@/components/video/share-button";
 import { VideoCard } from "@/components/video/video-card";

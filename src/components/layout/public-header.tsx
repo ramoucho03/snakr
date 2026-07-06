@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Logo } from "@/components/ui/logo";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Avatar } from "@/components/ui/avatar";
-import { buttonClass } from "@/components/ui/button";
+import { buttonClass } from "@/components/ui/button-variants";
 
 export interface PublicViewer {
   id: string;
