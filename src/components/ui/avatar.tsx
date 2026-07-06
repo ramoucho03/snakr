@@ -8,6 +8,12 @@ import { cn, initials } from "@/lib/utils";
  * A member avatar: the uploaded image when present, a tinted initials disc
  * otherwise. Falls back to initials if the image fails to load. Optionally links
  * to the member's channel.
+ *
+ * Sizing is bulletproof by construction: the box is an `inline-block` with a
+ * DEFINITE width/height (inline elements ignore width/height + overflow, and a
+ * flex child <img> keeps `min-width:auto` and refuses to shrink — both let the
+ * raw image blow out of the circle). The image is then ABSOLUTELY positioned to
+ * fill that box, so any source resolution/aspect is cropped to a clean disc.
  */
 export function Avatar({
   userId,
@@ -34,14 +40,12 @@ export function Avatar({
     <img
       src={`/api/users/${userId}/avatar`}
       alt={name}
-      width={size}
-      height={size}
       onError={() => setBroken(true)}
-      className="h-full w-full object-cover"
+      className="absolute inset-0 h-full w-full object-cover"
     />
   ) : (
     <span
-      className="grid h-full w-full place-items-center font-semibold text-text-hi"
+      className="absolute inset-0 grid place-items-center font-semibold text-text-hi"
       style={{ fontSize: Math.max(11, Math.round(size * 0.38)) }}
       aria-hidden
     >
@@ -50,7 +54,7 @@ export function Avatar({
   );
 
   const classes = cn(
-    "relative shrink-0 overflow-hidden rounded-full bg-glass-strong",
+    "relative inline-block shrink-0 overflow-hidden rounded-full bg-glass-strong align-middle",
     ring && "ring-1 ring-glass-border",
     className,
   );
@@ -58,7 +62,12 @@ export function Avatar({
 
   if (href) {
     return (
-      <Link href={href} className={cn(classes, "transition-transform hover:scale-105")} style={style} aria-label={name}>
+      <Link
+        href={href}
+        className={cn(classes, "transition-transform hover:scale-105")}
+        style={style}
+        aria-label={name}
+      >
         {inner}
       </Link>
     );
