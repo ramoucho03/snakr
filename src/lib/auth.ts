@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { hash as argonHash, verify as argonVerify } from "@node-rs/argon2";
 import { prisma } from "./db";
 import { openSession, sealSession } from "./session";
-import { isProd } from "./env";
+import { cookieSecure } from "./env";
 
 export const SESSION_COOKIE = "snakr_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
@@ -48,7 +48,7 @@ export async function createSession(
   const store = await cookies();
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: isProd(),
+    secure: cookieSecure(),
     sameSite: "lax",
     path: "/",
     expires: expiresAt,

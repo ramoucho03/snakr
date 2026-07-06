@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { resolveShare } from "@/lib/share";
 import { signShareGrant, SHARE_GRANT_COOKIE } from "@/lib/share-grant";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
-import { isProd } from "@/lib/env";
+import { cookieSecure } from "@/lib/env";
 
 export interface UnlockState {
   error?: string;
@@ -29,7 +29,7 @@ export async function unlockShare(
     const grant = await signShareGrant(state.share.id);
     (await cookies()).set(SHARE_GRANT_COOKIE, grant, {
       httpOnly: true,
-      secure: isProd(),
+      secure: cookieSecure(),
       sameSite: "lax",
       path: "/",
       maxAge: 60 * 60 * 2,

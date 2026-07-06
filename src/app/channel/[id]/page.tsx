@@ -35,9 +35,12 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   const channel = await getChannelProfile(id, viewer?.id ?? null);
   if (!channel) notFound();
 
-  const raw = channel.isOwner
-    ? await listOwnChannelVideos(channel.id)
-    : await listPublicChannelVideos(channel.id);
+  // A channel must never crash to the error boundary over a listing hiccup:
+  // fall back to an empty grid rather than 500-ing.
+  const raw = await (channel.isOwner
+    ? listOwnChannelVideos(channel.id)
+    : listPublicChannelVideos(channel.id)
+  ).catch(() => []);
   const videos: VideoItem[] = raw.map((v) => ({ ...v, createdAt: v.createdAt.toISOString() }));
 
   const origin = await shareOrigin();
@@ -47,7 +50,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   // in-app destination; anonymous visitors get the public bar.
   let header: React.ReactNode;
   if (viewer) {
-    const { used, limit } = await storageSummary(viewer.id);
+    const { used, limit } = await storageSummary(viewer.id).catch(() => ({ used: 0, limit: null }));
     header = (
       <AppHeader
         user={{

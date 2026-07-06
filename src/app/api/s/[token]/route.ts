@@ -5,7 +5,7 @@ import { resolveShare, claimDownload } from "@/lib/share";
 import { getFileRecord } from "@/lib/files";
 import { serveBlob, parseRange } from "@/lib/http";
 import { blobKey } from "@/lib/storage";
-import { isProd } from "@/lib/env";
+import { cookieSecure } from "@/lib/env";
 import {
   SHARE_GRANT_COOKIE,
   verifyShareGrant,
@@ -98,7 +98,7 @@ export async function GET(
     }
     jar.set(DL_PROGRESS_COOKIE, await signDownloadProgress(share.id, fileId), {
       httpOnly: true,
-      secure: isProd(),
+      secure: cookieSecure(),
       sameSite: "lax",
       path: "/",
       maxAge: 60 * 15,

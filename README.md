@@ -199,7 +199,7 @@ server {
 APP_URL="https://files.exemple.com"
 ```
 
-> 🔒 En production le cookie de session est marqué `Secure` : la connexion **doit** se faire via l'URL HTTPS du proxy. `http://192.168.0.200:3000` en direct affichera l'app mais la session ne tiendra pas — c'est voulu. N'exposez au proxy que le port 3000 ; jamais le 5432 (PostgreSQL).
+> 🔒 Les cookies suivent le schéma de `APP_URL` : avec un `APP_URL` en `https://` ils sont marqués `Secure` (connexion via l'URL HTTPS du proxy uniquement) ; avec un `APP_URL` en `http://` l'accès en HTTP simple fonctionne aussi — à réserver au LAN, le trafic n'étant alors pas chiffré (et l'installation PWA restera indisponible sans HTTPS de confiance). N'exposez au proxy que le port 3000 ; jamais le 5432 (PostgreSQL).
 
 ### Installer l'application (PWA) sur téléphone et PC
 

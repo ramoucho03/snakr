@@ -29,3 +29,16 @@ export function serverEnv(): ServerEnv {
 }
 
 export const isProd = () => process.env.NODE_ENV === "production";
+
+/**
+ * Whether auth/share cookies carry the `Secure` flag. A blanket "secure in
+ * prod" locks out self-hosters who serve over plain HTTP behind a LAN reverse
+ * proxy: browsers silently drop Secure cookies on http:// origins, so login
+ * loops forever. The operator's declared APP_URL scheme is the source of
+ * truth; without one, fall back to NODE_ENV.
+ */
+export const cookieSecure = (): boolean => {
+  const url = process.env.APP_URL;
+  if (url) return url.startsWith("https:");
+  return isProd();
+};

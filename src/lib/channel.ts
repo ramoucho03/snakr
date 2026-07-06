@@ -26,8 +26,14 @@ export interface ChannelProfile {
 
 /** A `@handle`, a raw handle, or a user id all resolve to the same channel. */
 export async function resolveChannelId(idOrHandle: string): Promise<string | null> {
-  const raw = decodeURIComponent(idOrHandle);
-  const handle = raw.startsWith("@") ? raw.slice(1) : raw;
+  // A malformed percent-escape must not 500 the page — fall back to the raw param.
+  let raw = idOrHandle;
+  try {
+    raw = decodeURIComponent(idOrHandle);
+  } catch {
+    /* keep the undecoded value */
+  }
+  const handle = (raw.startsWith("@") ? raw.slice(1) : raw).toLowerCase();
   const user = await prisma.user.findFirst({
     where: { OR: [{ id: raw }, { handle }] },
     select: { id: true },
@@ -64,11 +70,16 @@ export async function getChannelProfile(
     visibility: "PUBLIC" as const,
     blob: { mimeType: { in: [...VIDEO_MIMES] } },
   };
-  const [publicVideoCount, views, sub] = await Promise.all([
+  // These are non-critical stats — a channel must still render if one hiccups,
+  // so failures degrade to zero rather than 500-ing the whole page.
+  const [countRes, viewsRes, subRes] = await Promise.allSettled([
     prisma.file.count({ where: publicVideoWhere }),
     prisma.file.aggregate({ where: publicVideoWhere, _sum: { viewCount: true } }),
     getSubscribeState(channelId, viewerId),
   ]);
+  const publicVideoCount = countRes.status === "fulfilled" ? countRes.value : 0;
+  const totalViews = viewsRes.status === "fulfilled" ? (viewsRes.value._sum.viewCount ?? 0) : 0;
+  const sub = subRes.status === "fulfilled" ? subRes.value : { count: 0, subscribed: false };
 
   return {
     id: user.id,
@@ -80,7 +91,7 @@ export async function getChannelProfile(
     hasBanner: user.bannerKey != null,
     memberSince: user.createdAt,
     publicVideoCount,
-    totalViews: views._sum.viewCount ?? 0,
+    totalViews,
     subscriberCount: sub.count,
     subscribed: sub.subscribed,
     isOwner: viewerId != null && viewerId === channelId,

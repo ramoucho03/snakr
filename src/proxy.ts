@@ -43,7 +43,10 @@ function buildCsp(nonce: string, isDev: boolean): string {
     `frame-ancestors 'none'`,
     `frame-src 'self'`,
     `manifest-src 'self'`,
-    `upgrade-insecure-requests`,
+    // NO upgrade-insecure-requests: on a plain-HTTP origin (LAN reverse proxy
+    // without TLS) it silently rewrites every same-origin request to https://
+    // and bricks the whole app. Assets are all same-origin here, so the
+    // directive protected nothing to begin with.
   ].join("; ");
 }
 
