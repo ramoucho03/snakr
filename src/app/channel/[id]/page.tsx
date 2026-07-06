@@ -19,28 +19,41 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const channel = await getChannelProfile(id, null);
+  const channel = await getChannelProfile(id, null).catch(() => null);
   return { title: channel ? `${channel.name} — Chaîne` : "Chaîne" };
 }
 
 async function shareOrigin(): Promise<string> {
-  const env = serverEnv().APP_URL;
-  if (env) return env.replace(/\/$/, "");
-  return `https://${(await headers()).get("host") ?? "localhost"}`;
+  try {
+    const env = serverEnv().APP_URL;
+    if (env) return env.replace(/\/$/, "");
+    return `https://${(await headers()).get("host") ?? "localhost"}`;
+  } catch (err) {
+    console.error("[CHANNEL DEBUG] shareOrigin failed", err);
+    return "";
+  }
 }
 
 export default async function ChannelPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const viewer = await getCurrentUser();
-  const channel = await getChannelProfile(id, viewer?.id ?? null);
+
+  let channel;
+  try {
+    channel = await getChannelProfile(id, viewer?.id ?? null);
+  } catch (err) {
+    console.error("[CHANNEL DEBUG] getChannelProfile failed for", JSON.stringify(id), err);
+    throw err;
+  }
   if (!channel) notFound();
 
-  // A channel must never crash to the error boundary over a listing hiccup:
-  // fall back to an empty grid rather than 500-ing.
   const raw = await (channel.isOwner
     ? listOwnChannelVideos(channel.id)
     : listPublicChannelVideos(channel.id)
-  ).catch(() => []);
+  ).catch((err) => {
+    console.error("[CHANNEL DEBUG] video listing failed for", JSON.stringify(id), err);
+    return [];
+  });
   const videos: VideoItem[] = raw.map((v) => ({ ...v, createdAt: v.createdAt.toISOString() }));
 
   const origin = await shareOrigin();
@@ -50,7 +63,10 @@ export default async function ChannelPage({ params }: { params: Promise<{ id: st
   // in-app destination; anonymous visitors get the public bar.
   let header: React.ReactNode;
   if (viewer) {
-    const { used, limit } = await storageSummary(viewer.id).catch(() => ({ used: 0, limit: null }));
+    const { used, limit } = await storageSummary(viewer.id).catch((err) => {
+      console.error("[CHANNEL DEBUG] storageSummary failed", err);
+      return { used: 0, limit: null };
+    });
     header = (
       <AppHeader
         user={{
