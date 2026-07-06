@@ -40,8 +40,60 @@ function encodeFilename(name: string): string {
   );
 }
 
-function toWeb(stream: Readable): ReadableStream {
-  return Readable.toWeb(stream) as unknown as ReadableStream;
+/**
+ * Node Readable → Web ReadableStream, hardened against client cancellation.
+ *
+ * `Readable.toWeb()` throws an UNCAUGHT `ERR_INVALID_STATE: Controller is
+ * already closed` when the browser aborts a byte request (a very common event —
+ * cancelled <img> loads, seeked/closed video, navigation). That uncaught
+ * exception can tear down an unrelated in-flight response stream, surfacing as a
+ * bogus "Controller is already closed" during a page's RSC flush. This hand-
+ * rolled adapter guards every controller call and destroys the Node stream on
+ * cancel, so an aborted download can never escape as an uncaught error.
+ */
+function toWeb(nodeStream: Readable): ReadableStream<Uint8Array> {
+  let closed = false;
+  const finish = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    if (closed) return;
+    closed = true;
+    try {
+      controller.close();
+    } catch {
+      /* already closed by a cancel — ignore */
+    }
+  };
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      nodeStream.on("data", (chunk: Buffer) => {
+        if (closed) return;
+        try {
+          controller.enqueue(chunk);
+        } catch {
+          closed = true;
+          nodeStream.destroy();
+          return;
+        }
+        if ((controller.desiredSize ?? 1) <= 0) nodeStream.pause();
+      });
+      nodeStream.on("end", () => finish(controller));
+      nodeStream.on("error", (err) => {
+        if (closed) return;
+        closed = true;
+        try {
+          controller.error(err);
+        } catch {
+          /* consumer already gone — ignore */
+        }
+      });
+    },
+    pull() {
+      nodeStream.resume();
+    },
+    cancel() {
+      closed = true;
+      nodeStream.destroy();
+    },
+  });
 }
 
 export interface ServeOptions {
