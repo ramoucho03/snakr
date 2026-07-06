@@ -1,7 +1,13 @@
-# Snak'r — one-command self-hosted stack: postgres + app + caddy.
+# Snak'r — one-command self-hosted stack: postgres + app.
 #   docker compose up -d --build
 # Postgres comes up first and is health-gated; the app entrypoint then migrates,
-# seeds the admin, and serves; Caddy terminates TLS and reverse-proxies the app.
+# seeds the admin, and serves on :3000.
+#
+# DEFAULT = "external proxy" mode: the app is exposed on :3000 for an EXTERNAL
+# reverse proxy (Nginx / NPM / Traefik…) that terminates TLS and forwards here.
+# The bundled Caddy is PARKED behind the `with-caddy` profile — enable it only if
+# you want Caddy to own TLS on 80/443 instead of an external proxy:
+#   docker compose --profile with-caddy up -d --build   (then set APP_DOMAIN)
 
 services:
   postgres:
@@ -39,9 +45,11 @@ services:
     volumes:
       - uploads:/data
     ports:
-      # Bound to loopback: public traffic goes through Caddy (TLS) on 80/443.
-      # Change to "3000:3000" only if you want to reach the app directly.
-      - "127.0.0.1:3000:3000"
+      # Exposed on all interfaces so an EXTERNAL reverse proxy (fusionbase nginx,
+      # NPM, Traefik…) that terminates TLS can forward here over http://<host>:3000.
+      # If you enable the `with-caddy` profile instead, Caddy fronts TLS on 80/443
+      # and you can tighten this to "127.0.0.1:3000:3000".
+      - "3000:3000"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
       interval: 30s
@@ -52,6 +60,10 @@ services:
 
   caddy:
     image: caddy:2-alpine
+    # Parked by default — an external proxy terminates TLS in the standard setup.
+    # Start it with `docker compose --profile with-caddy up -d` to let Caddy own
+    # TLS on 80/443 (then set APP_DOMAIN + drop `tls internal` for a public FQDN).
+    profiles: ["with-caddy"]
     restart: unless-stopped
     depends_on:
       - app
