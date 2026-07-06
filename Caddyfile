@@ -5,7 +5,15 @@
 #   - localhost      -> Caddy serves HTTPS with its own internal CA (no ACME),
 #                       so it "just works" for local testing on https://localhost.
 #   - a real FQDN    -> Caddy provisions a public Let's Encrypt cert automatically
-#                       (ports 80 + 443 must be reachable from the internet).
+#                       (ports 80 + 443 must be reachable from the internet,
+#                       and the `tls internal` line below must be removed).
+#   - http://domain  -> plain HTTP, NO auto-redirect to HTTPS. REQUIRED when an
+#                       external proxy (Nginx Proxy Manager…) terminates TLS and
+#                       forwards here in HTTP: a bare FQDN would 308-redirect to
+#                       https:// in a loop (ERR_TOO_MANY_REDIRECTS). Remove the
+#                       `tls internal` line too (invalid on an http:// site).
+#                       Simpler alternative: skip Caddy entirely with
+#                       docker-compose.lan.yml and point the proxy at :3000.
 #
 # No request-body size cap is set: large uploads flow through the tus protocol in
 # 8 MB chunks, and Caddy has no default upload limit to begin with.

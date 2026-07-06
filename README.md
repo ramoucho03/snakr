@@ -160,6 +160,8 @@ docker compose logs -f app   # logs de l'application (Ctrl+C pour quitter)
 
 Si un reverse proxy tourne déjà chez vous (Nginx, Nginx Proxy Manager, Traefik…), inutile du Caddy embarqué : l'overlay `docker-compose.lan.yml` le désactive et expose l'application directement sur le réseau local, prête à être proxifiée.
 
+> ⚠️ **Boucle de redirection (`ERR_TOO_MANY_REDIRECTS`) ?** C'est que le Caddy embarqué tourne encore derrière votre proxy : votre proxy lui parle en HTTP, Caddy exige HTTPS et renvoie un 308 vers la même URL, à l'infini. Deux sorties : lancez avec l'overlay LAN ci-dessous (recommandé — plus de Caddy du tout), **ou** gardez Caddy en lui interdisant la redirection avec un `APP_DOMAIN` préfixé : `APP_DOMAIN="http://files.exemple.com"` (et retirez la ligne `tls internal` du `Caddyfile`, invalide sur un site http://) puis `docker compose up -d` — votre proxy pointe alors vers le port 80 du serveur.
+
 **1. Lancez en mode LAN** (sur la machine qui héberge Snak'r, ex. `192.168.0.200`) :
 
 ```bash
