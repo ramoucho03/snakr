@@ -93,7 +93,9 @@ export function DescriptionPanel({
         <>
           <p
             className={cn(
-              "mt-2 whitespace-pre-wrap break-words text-sm text-text-lo",
+              // max-w-prose: in theater mode the column grows wide enough that an
+              // unbounded paragraph runs well past a comfortable reading measure.
+              "mt-2 max-w-prose whitespace-pre-wrap break-words text-sm text-text-lo",
               !expanded && longText && "line-clamp-3",
             )}
           >

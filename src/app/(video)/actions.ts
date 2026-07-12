@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/dal";
 import { requireOwner, requireWrite, effectiveLevel } from "@/lib/access";
 import { prisma } from "@/lib/db";
 import { isPubliclyWatchable, type VideoVisibility } from "@/lib/videos";
+import { ensurePublishedDerivatives } from "@/lib/derivatives";
 import {
   listComments,
   createComment,
@@ -206,7 +207,7 @@ export async function setVisibilityAction(input: {
     await requireOwner("FILE", input.fileId);
     const current = await prisma.file.findUnique({
       where: { id: input.fileId },
-      select: { publishedAt: true },
+      select: { publishedAt: true, blobHash: true },
     });
     await prisma.file.update({
       where: { id: input.fileId },
@@ -218,6 +219,14 @@ export async function setVisibilityAction(input: {
           : {}),
       },
     });
+
+    // Publishing is what earns a video its social poster, its hover clip and its
+    // moov-first remux: a private video never pays the CPU or the disk for any
+    // of them. Backgrounded, so whoever pastes the link first waits on nothing.
+    if (input.visibility !== "PRIVATE" && current) {
+      ensurePublishedDerivatives(current.blobHash);
+    }
+
     revalidatePath(`/videos/${input.fileId}`);
     return { ok: true, visibility: input.visibility };
   } catch (err) {

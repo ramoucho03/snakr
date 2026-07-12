@@ -128,6 +128,14 @@ model Blob {
   size      BigInt
   mimeType  String // sniffed from magic bytes, never client-supplied
   refCount  Int      @default(0)
+  // ── Media probe (ffprobe), best-effort. It lives on the Blob because it is a
+  // property of the BYTES: identical content dedups to one row and one probe.
+  // A duration in the DB is what lets the grid drop its per-card metadata fetch
+  // and what the player needs to size its buffer before the first byte plays.
+  durationSec Float? // fractional seconds; null = unknown
+  width       Int?
+  height      Int?
+  probedAt    DateTime? // stamped even when the probe finds nothing, so we never re-probe in a loop
   createdAt DateTime @default(now())
 
   files       File[]
@@ -161,6 +169,8 @@ model File {
   @@index([folderId])
   @@index([blobHash])
   @@index([visibility])
+  // Channel listings filter on (owner, visibility) and order by publishedAt.
+  @@index([ownerId, visibility, publishedAt])
 }
 
 // Thumbnails / posters, keyed by source blob so they're regenerable + cache-friendly.
@@ -168,10 +178,16 @@ model Derivative {
   id       String @id @default(cuid())
   blobHash String
   blob     Blob   @relation(fields: [blobHash], references: [hash], onDelete: Cascade)
-  kind     String // "thumb" | "poster" | "preview"
+  // "thumb"   → 640px WebP, grid poster
+  // "poster"  → 1280×720 WebP + JPEG twin, social cards (og:image) & player poster
+  // "preview" → ~6s silent 480p MP4, hover scrub preview
+  // "fast"    → the source remuxed with the moov atom up front (instant start)
+  kind     String
   key      String // storage key of the derived asset
   width    Int?
   height   Int?
+  size     Int? // bytes; lets a route serve it without a stat() round-trip
+  mimeType String? // derivative's own type ("fast" is not always the source type)
 
   @@unique([blobHash, kind])
 }

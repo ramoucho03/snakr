@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { headers } from "next/headers";
 import { getCurrentUser } from "@/lib/dal";
 import { getChannelProfile } from "@/lib/channel";
-import { listPublicChannelVideos, listOwnChannelVideos } from "@/lib/videos";
+import { listPublicChannelVideos, listOwnChannelVideos, serializeVideo } from "@/lib/videos";
 import { storageSummary } from "@/lib/files";
-import { serverEnv } from "@/lib/env";
+import { appOrigin } from "@/lib/url";
 import { AppHeader } from "@/components/layout/app-header";
 import { PublicHeader } from "@/components/layout/public-header";
 import { ChannelView } from "@/components/channel/channel-view";
@@ -19,54 +18,63 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const channel = await getChannelProfile(id, null).catch(() => null);
-  return { title: channel ? `${channel.name} — Chaîne` : "Chaîne" };
-}
+  const [channel, origin] = await Promise.all([
+    getChannelProfile(id, null).catch(() => null),
+    appOrigin(),
+  ]);
+  if (!channel) return { title: "Chaîne" };
 
-async function shareOrigin(): Promise<string> {
-  try {
-    const env = serverEnv().APP_URL;
-    if (env) return env.replace(/\/$/, "");
-    return `https://${(await headers()).get("host") ?? "localhost"}`;
-  } catch (err) {
-    console.error("[CHANNEL DEBUG] shareOrigin failed", err);
-    return "";
-  }
+  const url = `${origin}/channel/${channel.handle ?? channel.id}`;
+  const description = channel.bio?.slice(0, 300) ?? `La chaîne de ${channel.name} sur Snak'r.`;
+  // The banner is the better card image; the avatar is square and crops badly.
+  const image = channel.hasBanner
+    ? `${origin}/api/users/${channel.id}/banner`
+    : channel.hasAvatar
+      ? `${origin}/api/users/${channel.id}/avatar`
+      : `${origin}/brand/og-cover.jpg`;
+
+  return {
+    metadataBase: new URL(origin),
+    title: `${channel.name} — Chaîne`,
+    description,
+    alternates: { canonical: url },
+    openGraph: {
+      type: "profile",
+      siteName: "Snak'r",
+      title: channel.name,
+      description,
+      url,
+      images: [{ url: image, alt: channel.name }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: channel.name,
+      description,
+      images: [image],
+    },
+  };
 }
 
 export default async function ChannelPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const viewer = await getCurrentUser();
 
-  let channel;
-  try {
-    channel = await getChannelProfile(id, viewer?.id ?? null);
-  } catch (err) {
-    console.error("[CHANNEL DEBUG] getChannelProfile failed for", JSON.stringify(id), err);
-    throw err;
-  }
+  const channel = await getChannelProfile(id, viewer?.id ?? null);
   if (!channel) notFound();
 
-  const raw = await (channel.isOwner
-    ? listOwnChannelVideos(channel.id)
-    : listPublicChannelVideos(channel.id)
-  ).catch((err) => {
-    console.error("[CHANNEL DEBUG] video listing failed for", JSON.stringify(id), err);
-    return [];
-  });
-  const videos: VideoItem[] = raw.map((v) => ({ ...v, createdAt: v.createdAt.toISOString() }));
+  const raw = channel.isOwner
+    ? await listOwnChannelVideos(channel.id)
+    : await listPublicChannelVideos(channel.id);
+  const videos: VideoItem[] = raw.map(serializeVideo);
 
-  const origin = await shareOrigin();
+  const origin = await appOrigin();
   const shareUrl = `${origin}/channel/${channel.handle ?? channel.id}`;
 
   // Signed-in members get the full app shell so a channel is a first-class
   // in-app destination; anonymous visitors get the public bar.
   let header: React.ReactNode;
   if (viewer) {
-    const { used, limit } = await storageSummary(viewer.id).catch((err) => {
-      console.error("[CHANNEL DEBUG] storageSummary failed", err);
-      return { used: 0, limit: null };
-    });
+    const { used, limit } = await storageSummary(viewer.id);
     header = (
       <AppHeader
         user={{

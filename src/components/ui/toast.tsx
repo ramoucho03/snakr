@@ -78,7 +78,9 @@ export function Toaster() {
               exit={{ opacity: 0, x: 32, scale: 0.95 }}
               transition={{ type: "spring", stiffness: 400, damping: 32 }}
               className="glass-strong pointer-events-auto flex items-start gap-3 rounded-xl p-3.5 pr-2.5"
-              role="status"
+              // `status` is polite and queues behind whatever is speaking. A
+              // failure has to interrupt, and `alert` is the assertive mapping.
+              role={t.kind === "error" ? "alert" : "status"}
             >
               <Icon size={18} className={cn("mt-0.5 shrink-0", TINT[t.kind])} aria-hidden />
               <p className="flex-1 text-sm text-text-hi">{t.message}</p>

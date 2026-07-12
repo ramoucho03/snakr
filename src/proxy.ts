@@ -21,7 +21,16 @@ const SESSION_COOKIE = "snakr_session";
 // Routes a signed-out user has no business loading. Optimistic gate only.
 const PROTECTED_PREFIXES = ["/drive", "/videos", "/admin", "/settings", "/shared"];
 
-function buildCsp(nonce: string, isDev: boolean): string {
+/**
+ * The ONE framable surface: the bare player behind `twitter:player` and the
+ * oEmbed iframe. It carries no session, no action and no clickable affordance
+ * an attacker could overlay, and it only ever renders a video its owner
+ * published — so relaxing `frame-ancestors` here buys the social embeds we want
+ * and costs no clickjacking surface. Everything else stays `'none'`.
+ */
+const EMBED_PREFIX = "/embed/";
+
+function buildCsp(nonce: string, isDev: boolean, framable: boolean): string {
   return [
     `default-src 'self'`,
     // Scripts: nonce + strict-dynamic is the real XSS guard. Next auto-nonces
@@ -40,7 +49,7 @@ function buildCsp(nonce: string, isDev: boolean): string {
     `object-src 'none'`,
     `base-uri 'self'`,
     `form-action 'self'`,
-    `frame-ancestors 'none'`,
+    framable ? `frame-ancestors *` : `frame-ancestors 'none'`,
     `frame-src 'self'`,
     `manifest-src 'self'`,
     // NO upgrade-insecure-requests: on a plain-HTTP origin (LAN reverse proxy
@@ -52,9 +61,23 @@ function buildCsp(nonce: string, isDev: boolean): string {
 
 export function proxy(request: NextRequest): NextResponse {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-  const csp = buildCsp(nonce, process.env.NODE_ENV === "development");
-
   const { pathname } = request.nextUrl;
+
+  const framable = pathname.startsWith(EMBED_PREFIX);
+  const csp = buildCsp(nonce, process.env.NODE_ENV === "development", framable);
+
+  /**
+   * `X-Frame-Options` lives here rather than in next.config's blanket
+   * `/:path*` header block, because a header set there cannot be un-set for a
+   * single route — and Safari still enforces the legacy header even when a
+   * `frame-ancestors` directive says otherwise. The proxy skips `/api`, which
+   * never serves framable HTML (`safeContentType` neuters every html/js MIME).
+   */
+  const applyFrameHeaders = (res: NextResponse) => {
+    res.headers.set("Content-Security-Policy", csp);
+    if (!framable) res.headers.set("X-Frame-Options", "DENY");
+    return res;
+  };
 
   // Optimistic redirect: no session cookie at all → straight to login.
   const needsAuth = PROTECTED_PREFIXES.some(
@@ -63,18 +86,14 @@ export function proxy(request: NextRequest): NextResponse {
   if (needsAuth && !request.cookies.has(SESSION_COOKIE)) {
     const login = new URL("/login", request.url);
     login.searchParams.set("next", pathname + request.nextUrl.search);
-    const redirect = NextResponse.redirect(login);
-    redirect.headers.set("Content-Security-Policy", csp);
-    return redirect;
+    return applyFrameHeaders(NextResponse.redirect(login));
   }
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", csp);
 
-  const response = NextResponse.next({ request: { headers: requestHeaders } });
-  response.headers.set("Content-Security-Policy", csp);
-  return response;
+  return applyFrameHeaders(NextResponse.next({ request: { headers: requestHeaders } }));
 }
 
 export const config = {

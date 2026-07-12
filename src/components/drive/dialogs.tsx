@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Textarea, Field } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
+import { copyText } from "@/lib/clipboard";
 import { cn, initials } from "@/lib/utils";
 import type { TargetItem } from "./types";
 import {
@@ -492,11 +493,10 @@ export function ShareDialog({
 
   async function copy() {
     if (!link) return;
-    try {
-      await navigator.clipboard.writeText(link);
+    if (await copyText(link)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
-    } catch {
+    } else {
       toast.error("Copie impossible");
     }
   }

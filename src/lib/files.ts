@@ -248,7 +248,19 @@ export async function moveItem(
 async function releaseFile(fileId: string): Promise<void> {
   const file = await prisma.file.findUnique({
     where: { id: fileId },
-    select: { ownerId: true, blobHash: true, blob: { select: { size: true } } },
+    select: {
+      ownerId: true,
+      blobHash: true,
+      blob: {
+        select: {
+          size: true,
+          // Read the derivative keys BEFORE the transaction: the rows cascade
+          // away with the Blob, and without them we could never find the
+          // thumbnail / poster / preview / faststart bytes again.
+          derivatives: { select: { key: true } },
+        },
+      },
+    },
   });
   if (!file) return;
 
@@ -275,9 +287,11 @@ async function releaseFile(fileId: string): Promise<void> {
     select: { hash: true },
   });
   if (!stillReferenced) {
-    await storage()
-      .delete(blobKey(file.blobHash))
-      .catch(() => {});
+    const disk = storage();
+    await Promise.all([
+      disk.delete(blobKey(file.blobHash)).catch(() => {}),
+      ...file.blob.derivatives.map((d) => disk.delete(d.key).catch(() => {})),
+    ]);
   }
 }
 
@@ -321,6 +335,34 @@ export async function getFileRecord(fileId: string) {
       ownerId: true,
       folderId: true,
       blob: { select: { hash: true, size: true, mimeType: true } },
+    },
+  });
+}
+
+/**
+ * Everything `/api/files/[id]` needs, in ONE query: the bytes to serve, the
+ * columns that decide whether the caller may have them, and the derivatives it
+ * can serve instead of the source.
+ *
+ * The byte route used to run `isPubliclyWatchable()` and then `getFileRecord()`.
+ * Seeking a video fires a Range request per jump, so that was two round-trips to
+ * Postgres for every scrub of every viewer.
+ */
+export async function getServableFile(fileId: string) {
+  return prisma.file.findUnique({
+    where: { id: fileId },
+    select: {
+      id: true,
+      name: true,
+      visibility: true,
+      blob: {
+        select: {
+          hash: true,
+          size: true,
+          mimeType: true,
+          derivatives: { select: { kind: true, key: true, size: true, mimeType: true } },
+        },
+      },
     },
   });
 }

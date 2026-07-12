@@ -106,19 +106,70 @@ export interface ServeOptions {
   disposition: "inline" | "attachment";
   /** Content-addressed derivatives are immutable and may be cached hard. */
   immutable?: boolean;
+  /**
+   * A strong validator for these exact bytes. Supplying it turns on conditional
+   * requests: the browser keeps its copy and revalidates for free instead of
+   * re-downloading gigabytes on every navigation.
+   *
+   * Deliberately opt-in. `/api/s/[token]` must NOT pass one — a 304 there would
+   * hand back the file without going through the atomic download claim.
+   */
+  etag?: string;
+  ifNoneMatch?: string | null;
+  ifRange?: string | null;
+  /**
+   * Allow shared caches (a reverse proxy, a social-network scraper's CDN) to
+   * store the response. PUBLIC/UNLISTED derivatives only — never ACL'd bytes.
+   */
+  publicCache?: boolean;
+}
+
+/** `"abc"` and `W/"abc"` name the same representation for If-None-Match. */
+function etagMatches(header: string | null | undefined, etag: string): boolean {
+  if (!header) return false;
+  if (header.trim() === "*") return true;
+  return header
+    .split(",")
+    .map((t) => t.trim().replace(/^W\//, ""))
+    .includes(etag);
+}
+
+function cacheControl(opts: ServeOptions): string {
+  if (opts.immutable) {
+    // `s-maxage` caps SHARED caches (a reverse proxy, a scraper's CDN) at an
+    // hour while the browser keeps its copy for a year. Un-publishing a video
+    // should not leave its thumbnail sitting in the operator's proxy cache
+    // until next summer; a per-user browser cache holds nothing it was not
+    // already allowed to see.
+    return opts.publicCache
+      ? "public, max-age=31536000, immutable, s-maxage=3600"
+      : "private, max-age=31536000, immutable";
+  }
+  // With a validator the browser can hold the bytes and ask "still current?" —
+  // a 304 costs one round-trip instead of the whole file. Without one it has no
+  // way to revalidate and must re-download, so tell it not to bother caching.
+  return opts.etag ? "private, max-age=0, must-revalidate" : "private, no-cache, must-revalidate";
 }
 
 /** Build a Range-aware streaming Response for a stored object. */
 export async function serveBlob(opts: ServeOptions): Promise<Response> {
+  const cc = cacheControl(opts);
   const base: Record<string, string> = {
     "Content-Type": safeContentType(opts.mime),
     "X-Content-Type-Options": "nosniff",
     "Accept-Ranges": "bytes",
-    "Cache-Control": opts.immutable
-      ? "private, max-age=31536000, immutable"
-      : "private, no-cache, must-revalidate",
+    "Cache-Control": cc,
     "Content-Disposition": `${opts.disposition}; filename*=UTF-8''${encodeFilename(opts.filename)}`,
   };
+  if (opts.etag) base.ETag = opts.etag;
+
+  // Revalidation of a whole representation. A ranged request is deliberately
+  // excluded: a media element asking for bytes N.. wants bytes, and answering
+  // it with an empty 304 is a reliable way to stall a video in the wild even
+  // though RFC 9110 permits it.
+  if (opts.etag && !opts.rangeHeader && etagMatches(opts.ifNoneMatch, opts.etag)) {
+    return new Response(null, { status: 304, headers: { ETag: opts.etag, "Cache-Control": cc } });
+  }
 
   const range = parseRange(opts.rangeHeader, opts.size);
   if (opts.rangeHeader && !range) {
@@ -128,7 +179,13 @@ export async function serveBlob(opts: ServeOptions): Promise<Response> {
     });
   }
 
-  if (range) {
+  // If-Range: the client holds a partial copy and wants the rest ONLY if what we
+  // have is still the same representation. When it isn't, RFC 9110 says serve
+  // the whole thing — which is exactly what stops a player from stitching bytes
+  // of one representation onto another.
+  const staleRange = range != null && opts.ifRange != null && !etagMatches(opts.ifRange, opts.etag ?? "");
+
+  if (range && !staleRange) {
     const stream = await storage().stream(opts.key, range);
     return new Response(toWeb(stream), {
       status: 206,

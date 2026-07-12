@@ -1,29 +1,27 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { headers } from "next/headers";
 import { getCurrentUser, requireUser } from "@/lib/dal";
 import { effectiveLevel } from "@/lib/access";
-import { getVideoDetail, listAccessibleVideos, isPubliclyWatchable } from "@/lib/videos";
+import {
+  getVideoDetail,
+  isPubliclyWatchable,
+  listAccessibleVideos,
+  serializeVideo,
+} from "@/lib/videos";
+import { ensurePublishedDerivatives } from "@/lib/derivatives";
 import { getChannelBadge } from "@/lib/channel";
 import { getReactionSummary } from "@/lib/reactions";
 import { listComments } from "@/lib/comments";
-import { serverEnv } from "@/lib/env";
+import { appOrigin } from "@/lib/url";
 import { WatchView } from "@/components/video/watch-view";
-import type { VideoItem } from "@/components/video/types";
 
 export const dynamic = "force-dynamic";
 
-const serialize = (v: { createdAt: Date } & Omit<VideoItem, "createdAt">): VideoItem => ({
-  ...v,
-  createdAt: v.createdAt.toISOString(),
-});
-
-async function shareOrigin(): Promise<string> {
-  const env = serverEnv().APP_URL;
-  if (env) return env.replace(/\/$/, "");
-  return `https://${(await headers()).get("host") ?? "localhost"}`;
-}
-
+/**
+ * No Open Graph here on purpose: this surface sits behind `requireUser`, so a
+ * crawler only ever sees the login redirect. The shareable card lives on the
+ * public twin at /watch/[id].
+ */
 export async function generateMetadata({
   params,
 }: {
@@ -35,7 +33,7 @@ export async function generateMetadata({
   const level = await effectiveLevel(user, "FILE", id);
   if (!level && !(await isPubliclyWatchable(id))) return { title: "Vidéo" };
   const video = await getVideoDetail(id, user.id);
-  return { title: video ? video.name : "Vidéo" };
+  return { title: video ? video.name : "Vidéo", robots: { index: false, follow: false } };
 }
 
 export default async function WatchPage({ params }: { params: Promise<{ id: string }> }) {
@@ -50,12 +48,17 @@ export default async function WatchPage({ params }: { params: Promise<{ id: stri
   const video = await getVideoDetail(id, user.id);
   if (!video) notFound();
 
+  // A published video earns its social poster, its hover clip and its moov-first
+  // remux. A private one pays for none of them. The URL this render hands the
+  // player is already pinned, so a remux landing later never shifts it mid-stream.
+  if (video.visibility !== "PRIVATE") ensurePublishedDerivatives(video.blobHash);
+
   const [all, channel, reactions, comments, origin] = await Promise.all([
     listAccessibleVideos(user),
     getChannelBadge(video.ownerId, user.id),
     getReactionSummary(id, user.id),
     listComments(id, user.id),
-    shareOrigin(),
+    appOrigin(),
   ]);
   if (!channel) notFound();
 
@@ -64,8 +67,8 @@ export default async function WatchPage({ params }: { params: Promise<{ id: stri
   return (
     <WatchView
       key={video.id}
-      video={serialize(video)}
-      related={related.map(serialize)}
+      video={serializeVideo(video)}
+      related={related.map(serializeVideo)}
       channel={channel}
       reactions={reactions}
       comments={comments}

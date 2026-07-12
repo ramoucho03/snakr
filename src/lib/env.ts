@@ -14,6 +14,10 @@ const schema = z.object({
   ADMIN_NAME: z.string().optional(),
   APP_URL: z.string().url().optional(),
   FFMPEG_PATH: z.string().optional(),
+  // Derived from FFMPEG_PATH when unset — see lib/probe.ts.
+  FFPROBE_PATH: z.string().optional(),
+  // "off" stops the app from storing a moov-first remux of published videos.
+  VIDEO_REMUX: z.enum(["auto", "off"]).optional(),
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),

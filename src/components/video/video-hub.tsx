@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Search,
   Clapperboard,
@@ -72,6 +73,13 @@ function sortVideos(list: VideoItem[], sort: SortKey): VideoItem[] {
 // Hide the scrollbar on the horizontal shelves (chips + continue-watching).
 const HIDE_SCROLLBAR = "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 
+/** Debounce the URL write, not the filtering — the grid must stay instant. */
+const URL_SYNC_MS = 250;
+
+const isFilter = (v: string | null): v is FilterKey =>
+  FILTERS.some((f) => f.key === v);
+const isSort = (v: string | null): v is SortKey => SORTS.some((s) => s.key === v);
+
 export function VideoHub({
   videos,
   subscriptions = [],
@@ -79,10 +87,40 @@ export function VideoHub({
   videos: VideoItem[];
   subscriptions?: VideoItem[];
 }) {
-  const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<FilterKey>("all");
-  const [sort, setSort] = useState<SortKey>("recent");
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+
+  // Seeded from the URL so a shared or reloaded link lands on the same view.
+  const [q, setQ] = useState(() => params.get("q") ?? "");
+  const [filter, setFilter] = useState<FilterKey>(() => {
+    const raw = params.get("filtre");
+    return isFilter(raw) ? raw : "all";
+  });
+  const [sort, setSort] = useState<SortKey>(() => {
+    const raw = params.get("tri");
+    return isSort(raw) ? raw : "recent";
+  });
   const [resumeIds, setResumeIds] = useState<string[]>([]);
+  const firstRun = useRef(true);
+
+  // Reflect the view back into the URL. `replace`, not `push`: the browser's
+  // Back button should leave the hub, not walk back through every keystroke.
+  useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      const next = new URLSearchParams();
+      if (q.trim()) next.set("q", q.trim());
+      if (filter !== "all") next.set("filtre", filter);
+      if (sort !== "recent") next.set("tri", sort);
+      const query = next.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    }, URL_SYNC_MS);
+    return () => clearTimeout(timer);
+  }, [q, filter, sort, pathname, router]);
 
   const byId = useMemo(() => new Map(videos.map((v) => [v.id, v])), [videos]);
 

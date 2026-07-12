@@ -15,7 +15,9 @@ export type ButtonSize = "sm" | "md" | "lg" | "icon";
 const VARIANTS: Record<ButtonVariant, string> = {
   primary:
     "bg-accent text-[var(--accent-contrast)] shadow-[0_8px_24px_-10px_var(--accent)] hover:-translate-y-px hover:shadow-[0_14px_34px_-10px_var(--accent)] hover:brightness-105 active:translate-y-0 active:brightness-95",
-  secondary: "glass text-text-hi hover:text-text-hi hover:brightness-125",
+  // `brightness-125` is imperceptible on the light theme's near-white glass;
+  // stepping up to the stronger glass token gives a hover that reads in both.
+  secondary: "glass text-text-hi hover:text-text-hi hover:bg-glass-strong",
   ghost: "text-text-lo hover:text-text-hi hover:bg-glass",
   outline: "border border-glass-border text-text-hi hover:bg-glass hover:border-accent/60",
   danger: "bg-danger text-white shadow-[0_8px_24px_-8px_var(--danger)] hover:brightness-110",

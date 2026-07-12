@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { Download, FileWarning, FolderOpen } from "lucide-react";
@@ -13,7 +14,30 @@ import { TypeIcon } from "@/components/drive/type-icon";
 import { UnlockForm } from "./unlock-form";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Partage" };
+
+/**
+ * Deliberately says nothing about what is behind the link. Unfurling a share URL
+ * in a group chat would otherwise broadcast the filename to everybody in the
+ * room — and for a password-protected share, that is the very thing the password
+ * exists to withhold. Generic title, brand image, never indexed.
+ */
+export const metadata: Metadata = {
+  title: "Partage",
+  robots: { index: false, follow: false, nocache: true },
+  openGraph: {
+    type: "website",
+    siteName: "Snak'r",
+    title: "Un fichier vous a été partagé",
+    description: "Ouvrez le lien pour accéder au fichier partagé via Snak'r.",
+    images: [{ url: "/brand/og-cover.jpg", width: 1200, height: 630, alt: "Snak'r" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Un fichier vous a été partagé",
+    description: "Ouvrez le lien pour accéder au fichier partagé via Snak'r.",
+    images: ["/brand/og-cover.jpg"],
+  },
+};
 
 // Primary-button look as a plain string (buttonClass lives in a "use client"
 // module and can't be called from this server component).

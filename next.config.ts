@@ -2,9 +2,12 @@ import type { NextConfig } from "next";
 
 // Static security headers (the per-request, nonce-bearing CSP lives in proxy.ts).
 // These are constant so they belong in the config, applied to every response.
+//
+// `X-Frame-Options` is deliberately absent: a header declared on `/:path*`
+// cannot be un-declared for a single route, and `/embed/[id]` has to be framable
+// for social player cards. proxy.ts sets it per-request, everywhere but there.
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-DNS-Prefetch-Control", value: "off" },
   {
@@ -20,6 +23,9 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   // Produce a self-contained server bundle for a small, fast Docker image.
   output: "standalone",
+
+  // Nothing downstream needs to know which framework serves these bytes.
+  poweredByHeader: false,
 
   // A stray lockfile in a parent directory makes Next mis-infer the workspace
   // root, which breaks standalone file tracing. Pin both to this project.

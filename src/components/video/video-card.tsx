@@ -1,36 +1,56 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useReducedMotion } from "motion/react";
 import { Play, Star, CheckCircle2, Lock, Link2 } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { cn, formatRelative, formatDuration, formatViews } from "@/lib/utils";
 import type { VideoItem } from "./types";
-import { useCanHover, useInView, useVideoDuration } from "./use-video";
+import { useCanHover, useSaveData } from "./use-video";
 import { getProgress, progressFraction } from "./progress";
 
+/** Hovering past this settles a real intent to preview, not a cursor sweep. */
+const HOVER_DWELL_MS = 400;
+
 /**
- * The 16:9 preview surface: poster thumbnail, a lazily-probed duration badge, a
- * resume progress bar, and — on hover-capable pointers — a muted autoplaying
- * preview, exactly like a YouTube thumbnail. `preview` is off for compact rows.
+ * The 16:9 preview surface: poster thumbnail, duration badge, a resume progress
+ * bar, and — on hover-capable pointers — a muted autoplaying preview, exactly
+ * like a YouTube thumbnail.
+ *
+ * Two things it deliberately does NOT do. It never probes the video for its
+ * duration (that arrives with the row, measured once by ffprobe at upload), and
+ * its hover preview streams a ~200 KB derived clip rather than the source file.
+ * Both used to cost a network round-trip into the original video per card.
  */
 function Thumb({ video, preview }: { video: VideoItem; preview: boolean }) {
   const reduce = useReducedMotion();
   const canHover = useCanHover();
-  const [ref, inView] = useInView<HTMLDivElement>();
-  const duration = useVideoDuration(video.id, inView);
+  const saveData = useSaveData();
 
   const [hovering, setHovering] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
   const [frac, setFrac] = useState(0);
+  const dwellRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setFrac(progressFraction(getProgress(video.id)));
   }, [video.id]);
 
+  useEffect(() => () => void (dwellRef.current && clearTimeout(dwellRef.current)), []);
+
+  const enter = () => {
+    if (dwellRef.current) clearTimeout(dwellRef.current);
+    dwellRef.current = setTimeout(() => setHovering(true), HOVER_DWELL_MS);
+  };
+  const leave = () => {
+    if (dwellRef.current) clearTimeout(dwellRef.current);
+    setHovering(false);
+  };
+
   const showThumb = video.hasThumb && !imgFailed;
-  const showPreview = preview && canHover && !reduce && hovering;
+  const canPreview = preview && video.hasPreview && canHover && !reduce && !saveData;
+  const showPreview = canPreview && hovering;
   const privacy =
     video.owned && video.visibility !== "PUBLIC"
       ? video.visibility === "PRIVATE"
@@ -40,9 +60,8 @@ function Thumb({ video, preview }: { video: VideoItem; preview: boolean }) {
 
   return (
     <div
-      ref={ref}
-      onMouseEnter={preview ? () => setHovering(true) : undefined}
-      onMouseLeave={preview ? () => setHovering(false) : undefined}
+      onMouseEnter={canPreview ? enter : undefined}
+      onMouseLeave={canPreview ? leave : undefined}
       className="relative aspect-video w-full overflow-hidden rounded-xl bg-bg-1"
     >
       {showThumb ? (
@@ -51,6 +70,7 @@ function Thumb({ video, preview }: { video: VideoItem; preview: boolean }) {
           src={`/api/files/${video.id}/thumb`}
           alt=""
           loading="lazy"
+          decoding="async"
           onError={() => setImgFailed(true)}
           className="absolute inset-0 h-full w-full object-cover"
         />
@@ -61,13 +81,14 @@ function Thumb({ video, preview }: { video: VideoItem; preview: boolean }) {
       )}
 
       {showPreview && (
+        // eslint-disable-next-line jsx-a11y/media-has-caption
         <video
-          src={`/api/files/${video.id}`}
+          src={`/api/files/${video.id}/preview`}
           muted
           loop
           autoPlay
           playsInline
-          preload="metadata"
+          preload="auto"
           className="absolute inset-0 h-full w-full bg-black object-cover"
         />
       )}
@@ -97,9 +118,9 @@ function Thumb({ video, preview }: { video: VideoItem; preview: boolean }) {
         </span>
       )}
 
-      {duration != null && (
+      {video.durationSec != null && (
         <span className="tabular absolute bottom-1.5 right-1.5 rounded-md bg-black/80 px-1.5 py-0.5 text-[0.7rem] font-medium leading-none text-white">
-          {formatDuration(duration)}
+          {formatDuration(video.durationSec)}
         </span>
       )}
 
@@ -117,7 +138,8 @@ function Meta({ video }: { video: VideoItem }) {
   return (
     <>
       <p className="truncate text-xs text-text-lo">{video.ownerName}</p>
-      <p className="tabular truncate text-xs text-text-faint">
+      {/* text-lo, not text-faint: the faint token drops under 4.5:1 in light mode. */}
+      <p className="tabular truncate text-xs text-text-lo">
         {formatViews(video.viewCount)} · {formatRelative(video.createdAt)}
       </p>
     </>

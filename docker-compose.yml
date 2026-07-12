@@ -36,8 +36,16 @@ services:
       # the `postgres` service host, not localhost.
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
       STORAGE_ROOT: /data/uploads
-      # Alpine's musl ffmpeg (installed in the image) — video poster frames.
+      # Alpine's musl ffmpeg (installed in the image) — poster frames, hover
+      # previews, faststart remuxes. ffprobe ships beside it and reads a video's
+      # duration and dimensions without decoding a frame. If it were ever
+      # missing, probe.ts falls back to parsing ffmpeg's own header output.
       FFMPEG_PATH: /usr/bin/ffmpeg
+      FFPROBE_PATH: /usr/bin/ffprobe
+      # "off" disables the moov-first remux of published videos. That remux is
+      # what makes playback start on the first byte instead of after a round-trip
+      # for the index at EOF — at the price of a second copy of the file on disk.
+      VIDEO_REMUX: ${VIDEO_REMUX:-auto}
     depends_on:
       postgres:
         # Waits for Postgres to accept connections, not just for the container to start.

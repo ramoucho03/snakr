@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -14,6 +14,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { Button, buttonClass } from "@/components/ui/button";
+import { Modal, ModalContent, ModalClose } from "@/components/ui/dialog";
 import { Avatar } from "@/components/ui/avatar";
 import { toast } from "@/components/ui/toast";
 import { cn, formatRelative, formatCount } from "@/lib/utils";
@@ -29,6 +30,19 @@ import {
 
 type Result = { ok: true; comments: CommentDTO[] } | { ok: false; error: string };
 
+/** Run `fn` over every node of the two-level thread, keeping its shape. */
+function mapThread(list: CommentDTO[], fn: (c: CommentDTO) => CommentDTO): CommentDTO[] {
+  return list.map((c) => fn({ ...c, replies: c.replies.map(fn) }));
+}
+
+/** Flip a single comment's like, in place. Its own inverse — hence the revert. */
+function toggleLike(id: string) {
+  return (c: CommentDTO): CommentDTO =>
+    c.id === id
+      ? { ...c, likedByMe: !c.likedByMe, likeCount: c.likeCount + (c.likedByMe ? -1 : 1) }
+      : c;
+}
+
 function countAll(list: CommentDTO[]): number {
   return list.reduce((n, c) => n + 1 + c.replies.length, 0);
 }
@@ -40,6 +54,9 @@ const textareaClass =
  * Threaded video comments (one level of replies, YouTube-style). Every mutation
  * returns the freshly rebuilt thread, so the UI simply swaps its state. Anonymous
  * viewers are routed to sign-in for any write.
+ *
+ * Busy state is tracked per comment id, not globally: liking one comment used to
+ * disable every button in the thread while the round-trip was in flight.
  */
 export function Comments({
   fileId,
@@ -59,27 +76,66 @@ export function Comments({
   loginHref: string;
 }) {
   const [comments, setComments] = useState(initial);
-  const [pending, start] = useTransition();
+  const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
+  const [posting, startPosting] = useTransition();
   const [body, setBody] = useState("");
   const [focused, setFocused] = useState(false);
 
-  const run = (action: () => Promise<Result>, after?: () => void) =>
-    start(async () => {
-      const res = await action();
-      if (res.ok) {
-        setComments(res.comments);
-        after?.();
-      } else {
-        toast.error(res.error);
-      }
+  const mark = useCallback((id: string, on: boolean) => {
+    setBusy((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
     });
+  }, []);
+
+  /** Mutate one comment; only that comment's controls go inert meanwhile. */
+  const run = useCallback(
+    async (id: string, action: () => Promise<Result>, after?: () => void) => {
+      mark(id, true);
+      try {
+        const res = await action();
+        if (res.ok) {
+          setComments(res.comments);
+          after?.();
+        } else {
+          toast.error(res.error);
+        }
+      } finally {
+        mark(id, false);
+      }
+    },
+    [mark],
+  );
+
+  /**
+   * A like is a one-bit change the server will always accept; waiting for a
+   * round-trip to show it makes the thread feel dead. Paint it immediately,
+   * reconcile with the server's thread on success, un-flip it on failure.
+   */
+  const like = useCallback(async (id: string) => {
+    setComments((prev) => mapThread(prev, toggleLike(id)));
+    const res = await likeCommentAction({ commentId: id });
+    if (res.ok) setComments(res.comments);
+    else {
+      setComments((prev) => mapThread(prev, toggleLike(id)));
+      toast.error(res.error);
+    }
+  }, []);
 
   function submit() {
     const value = body.trim();
     if (!value) return;
-    run(() => postCommentAction({ fileId, body: value }), () => {
-      setBody("");
-      setFocused(false);
+    startPosting(async () => {
+      const res = await postCommentAction({ fileId, body: value });
+      if (res.ok) {
+        setComments(res.comments);
+        setBody("");
+        setFocused(false);
+      } else {
+        toast.error(res.error);
+      }
     });
   }
 
@@ -115,11 +171,11 @@ export function Comments({
                     setBody("");
                     setFocused(false);
                   }}
-                  disabled={pending}
+                  disabled={posting}
                 >
                   Annuler
                 </Button>
-                <Button size="sm" onClick={submit} loading={pending} disabled={!body.trim()}>
+                <Button size="sm" onClick={submit} loading={posting} disabled={!body.trim()}>
                   Commenter
                 </Button>
               </div>
@@ -147,12 +203,13 @@ export function Comments({
             viewerId={viewerId}
             isOwner={isOwner}
             loginHref={loginHref}
-            pending={pending}
+            busy={busy}
             run={run}
+            like={like}
           />
         ))}
         {comments.length === 0 && (
-          <p className="text-sm text-text-faint">Soyez le premier à commenter.</p>
+          <p className="text-sm text-text-lo">Soyez le premier à commenter.</p>
         )}
       </div>
     </section>
@@ -167,8 +224,9 @@ function CommentNode({
   viewerId,
   isOwner,
   loginHref,
-  pending,
+  busy,
   run,
+  like,
 }: {
   comment: CommentDTO;
   threadId: string;
@@ -177,8 +235,9 @@ function CommentNode({
   viewerId: string | null;
   isOwner: boolean;
   loginHref: string;
-  pending: boolean;
-  run: (action: () => Promise<Result>, after?: () => void) => void;
+  busy: ReadonlySet<string>;
+  run: (id: string, action: () => Promise<Result>, after?: () => void) => void;
+  like: (id: string) => void;
 }) {
   const router = useRouter();
   const [replying, setReplying] = useState(false);
@@ -186,23 +245,25 @@ function CommentNode({
   const [editing, setEditing] = useState(false);
   const [editBody, setEditBody] = useState(comment.body);
   const [showReplies, setShowReplies] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   const avatarSize = depth === 0 ? 40 : 32;
   const channelHref = `/channel/${comment.authorHandle ?? comment.authorId}`;
   const canModerate = comment.mine || isOwner;
+  const pending = busy.has(comment.id);
 
-  function like() {
+  function onLike() {
     if (!viewerId) {
       router.push(loginHref);
       return;
     }
-    run(() => likeCommentAction({ commentId: comment.id }));
+    like(comment.id);
   }
 
   function submitReply() {
     const value = replyBody.trim();
     if (!value) return;
-    run(() => postCommentAction({ fileId, body: value, parentId: threadId }), () => {
+    run(comment.id, () => postCommentAction({ fileId, body: value, parentId: threadId }), () => {
       setReplyBody("");
       setReplying(false);
       setShowReplies(true);
@@ -212,12 +273,14 @@ function CommentNode({
   function submitEdit() {
     const value = editBody.trim();
     if (!value) return;
-    run(() => editCommentAction({ commentId: comment.id, body: value }), () => setEditing(false));
+    run(comment.id, () => editCommentAction({ commentId: comment.id, body: value }), () =>
+      setEditing(false),
+    );
   }
 
   function remove() {
-    if (!window.confirm("Supprimer ce commentaire ?")) return;
-    run(() => deleteCommentAction({ commentId: comment.id }));
+    setConfirming(false);
+    run(comment.id, () => deleteCommentAction({ commentId: comment.id }));
   }
 
   return (
@@ -278,8 +341,7 @@ function CommentNode({
         {!editing && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1 text-text-faint">
             <button
-              onClick={like}
-              disabled={pending}
+              onClick={onLike}
               aria-pressed={comment.likedByMe}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs transition-colors hover:bg-glass",
@@ -310,7 +372,9 @@ function CommentNode({
             )}
             {depth === 0 && isOwner && (
               <button
-                onClick={() => run(() => pinCommentAction({ commentId: comment.id, pinned: !comment.pinned }))}
+                onClick={() =>
+                  run(comment.id, () => pinCommentAction({ commentId: comment.id, pinned: !comment.pinned }))
+                }
                 disabled={pending}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs transition-colors hover:bg-glass",
@@ -322,7 +386,11 @@ function CommentNode({
             )}
             {isOwner && (
               <button
-                onClick={() => run(() => heartCommentAction({ commentId: comment.id, hearted: !comment.heartedByOwner }))}
+                onClick={() =>
+                  run(comment.id, () =>
+                    heartCommentAction({ commentId: comment.id, hearted: !comment.heartedByOwner }),
+                  )
+                }
                 disabled={pending}
                 aria-label="Aimer en tant que créateur"
                 className={cn(
@@ -335,7 +403,7 @@ function CommentNode({
             )}
             {canModerate && (
               <button
-                onClick={remove}
+                onClick={() => setConfirming(true)}
                 disabled={pending}
                 className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-text-lo transition-colors hover:bg-danger/10 hover:text-danger"
               >
@@ -344,6 +412,24 @@ function CommentNode({
             )}
           </div>
         )}
+
+        <Modal open={confirming} onOpenChange={setConfirming}>
+          <ModalContent
+            title="Supprimer ce commentaire ?"
+            description="Cette action est définitive. Les réponses éventuelles seront également supprimées."
+          >
+            <div className="flex items-center justify-end gap-2">
+              <ModalClose asChild>
+                <Button variant="ghost" size="sm">
+                  Annuler
+                </Button>
+              </ModalClose>
+              <Button variant="danger" size="sm" onClick={remove}>
+                Supprimer
+              </Button>
+            </div>
+          </ModalContent>
+        </Modal>
 
         {/* Reply composer */}
         {replying && viewerId && (
@@ -390,8 +476,9 @@ function CommentNode({
                     viewerId={viewerId}
                     isOwner={isOwner}
                     loginHref={loginHref}
-                    pending={pending}
+                    busy={busy}
                     run={run}
+                    like={like}
                   />
                 ))}
               </div>
